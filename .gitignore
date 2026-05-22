@@ -6,3 +6,25 @@ gcloud-key.json
 .next/
 dist/
 primeval-truth-496802-f3-0b881f14a623.json
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment
+.env
+*.env.local
+
+# Jupyter (if you ever experiment in notebooks)
+.ipynb_checkpoints/

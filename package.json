@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@arizeai/openinference-semantic-conventions": "^2.3.0",
+    "@opentelemetry/exporter-otlp-http": "^0.26.0",
+    "@opentelemetry/semantic-conventions": "^1.41.1"
+  }
+}

@@ -1,75 +1,43 @@
-import dotenv from "dotenv";
-dotenv.config();
+// apps/api/src/services/geminiAgent.ts
+import axios from 'axios';
+import { Investigation, TradingThesis } from '../types';
 
-import axios from "axios";
-import { Investigation } from "../types";
-
-
-/**
- * Simple Gemini call layer (THIS is your real agent runtime for now)
- * This replaces the broken ADK runtime attempt.
- */
+const AGENT_URL = process.env.PYTHON_AGENT_URL || 'http://localhost:8000';
 
 export async function callGeminiAgent(
   investigation: Investigation,
-  _sessionId: string
-) {
-  const prompt = buildPrompt(investigation);
+  sessionId: string
+): Promise<TradingThesis> {
 
-  // If you're using Vertex AI / Gemini API key approach
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  // Build the news context string from structured news items
+  const newsContext = investigation.newsContext
+    .map(n => `[${n.sentiment}] ${n.headline} (${n.source}, ${n.publishedAt})`)
+    .join('\n');
 
-  const response = await axios.post(endpoint, {
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: prompt }],
-      },
-    ],
-  });
+  // Build the signals list from structured signal objects
+  const signals = investigation.signals.map(s =>
+    `${s.signalType}: ${s.percentChange.toFixed(1)}% change, severity=${s.severity}, source=${s.source}`
+  );
 
-  const text =
-    response.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+  const payload = {
+    symbol: investigation.symbol,
+    signals,
+    news_context: newsContext,
+    sentiment_score: investigation.sentimentScore,
+  };
 
-  // Try to extract JSON safely
-  const match = text.match(/\{[\s\S]*\}/);
+  try {
+    const response = await axios.post<TradingThesis>(
+      `${AGENT_URL}/analyze`,
+      payload,
+      { timeout: 60000 }  // 60s — Gemini reasoning can take a moment
+    );
 
-  if (!match) {
-    throw new Error("Gemini did not return valid JSON");
+    return response.data;
+  } catch (err: any) {
+    if (err.response) {
+      throw new Error(`Agent service error ${err.response.status}: ${JSON.stringify(err.response.data)}`);
+    }
+    throw new Error(`Could not reach Python agent service at ${AGENT_URL}: ${err.message}`);
   }
-
-  return JSON.parse(match[0]);
-}
-
-/**
- * Build prompt from your investigation object
- */
-function buildPrompt(inv: Investigation): string {
-  return `
-You are Shadow Trader, a market intelligence agent.
-
-Analyze the following:
-
-SYMBOL: ${inv.symbol}
-
-SIGNALS:
-${inv.signals.map(s => `- ${s.signalType} (${s.percentChange}%)`).join("\n")}
-
-NEWS:
-${inv.newsContext.map(n => `- ${n.headline}`).join("\n")}
-
-SENTIMENT SCORE: ${inv.sentimentScore}
-
-Return STRICT JSON with:
-{
-  "symbol": string,
-  "direction": "BULLISH" | "BEARISH" | "NEUTRAL",
-  "thesis": string,
-  "confidenceScore": number,
-  "riskExplanation": string,
-  "bullishFactors": string[],
-  "bearishFactors": string[],
-  "suggestedAction": "WATCH" | "ALERT" | "AVOID"
-}
-`.trim();
 }

@@ -1,5 +1,5 @@
 from google.adk.agents.llm_agent import Agent
-from .tools import analyze_market_signal, assess_risk, generate_watchlist_entry
+from tools import analyze_market_signal, assess_risk, generate_watchlist_entry
 
 SHADOW_TRADER_PROMPT = """
 You are Shadow Trader, an autonomous market intelligence agent.
