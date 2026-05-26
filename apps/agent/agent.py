@@ -3,6 +3,8 @@ import os
 from google.adk.agents.llm_agent import Agent
 from tools import analyze_market_signal, assess_risk, generate_watchlist_entry
 
+DEFAULT_GEMINI_MODEL = "gemini-2.5-pro"
+
 SHADOW_TRADER_PROMPT = """
 You are Shadow Trader, an autonomous market intelligence agent.
 
@@ -96,7 +98,7 @@ Required JSON format:
 
 """
 root_agent = Agent(
-    model=os.getenv('GEMINI_MODEL', 'gemini-3-pro-preview'),
+    model=os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
     name='shadow_trader_agent',
     description='AI-powered market intelligence and signal analysis agent.',
     instruction=SHADOW_TRADER_PROMPT,

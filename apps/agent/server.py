@@ -17,7 +17,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 
 # Import your agent
-from agent import root_agent
+from agent import DEFAULT_GEMINI_MODEL, root_agent
 
 # ── Arize / OpenTelemetry setup ───────────────────────────────────────────────
 from opentelemetry.sdk.trace import TracerProvider
@@ -219,5 +219,5 @@ def health():
     return {
         "status": "ok",
         "agent": "shadow_trader",
-        "model": os.getenv("GEMINI_MODEL", "gemini-3-pro-preview"),
+        "model": os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
     }

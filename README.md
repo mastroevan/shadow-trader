@@ -83,7 +83,7 @@ Required:
 
 - `FINNHUB_API_KEY`
 - `GOOGLE_API_KEY`
-- `GEMINI_MODEL` defaults to `gemini-3-pro-preview`
+- `GEMINI_MODEL` defaults to `gemini-2.5-pro`
 - `ARIZE_API_KEY`
 - `ARIZE_SPACE_KEY`
 
