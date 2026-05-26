@@ -54,9 +54,15 @@ export default function Home() {
     setResult(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/analyze/${cleanSymbol}`, {
-        method: 'POST',
-      });
+      const response = await fetch("http://localhost:3001/api/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          symbol,
+        }),
+      })
 
       const data = (await response.json()) as AnalyzeResponse;
 
