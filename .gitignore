@@ -9,3 +9,6 @@ build/
 __pycache__/
 *.pyc
 gcloud-key.json
+.DS_Store
+.DS_Store
+apps/api/.DS_Store
