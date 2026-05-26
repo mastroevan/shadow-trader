@@ -4,10 +4,12 @@ import { Router } from "express";
 import {
   getFinnhubCompanyNews,
   getFinnhubQuote,
+  getTechnicalIndicators,
   isValidFinnhubQuote,
 } from "../services/finnhub";
 import { normalizeSymbol, getAliasSuggestion } from "../utils/symbols";
 import { generateSignals } from "../utils/signals";
+import { traceAgentCall } from "../services/arizeTracker";
 
 const router = Router();
 
@@ -44,11 +46,15 @@ router.post("/analyze", async (req, res) => {
       });
     }
 
-    const news = await getFinnhubCompanyNews(symbol);
+    const [news, technicals] = await Promise.all([
+      getFinnhubCompanyNews(symbol),
+      getTechnicalIndicators(symbol),
+    ]);
 
     const signals = generateSignals({
       quote,
       news,
+      technicals,
     });
 
     const newsSignals = news.slice(0, 5).map((item) => {
@@ -66,36 +72,49 @@ router.post("/analyze", async (req, res) => {
       originalInput,
       quote,
       signals: signalStrings,
+      signalDetails: signals,
       news,
+      news_context: newsSignals.join("\n"),
     };
 
-    const agentResponse = await fetch(AGENT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const { result: thesis, traceId } = await traceAgentCall(
+      "shadow_trader.analyze",
+      {
+        symbol,
+        signalCount: signalStrings.length,
+        newsCount: news.length,
+        quoteSource: quote.source,
+        sma20: technicals?.sma20,
       },
-      body: JSON.stringify(agentPayload),
-    });
+      async () => {
+        const agentResponse = await fetch(AGENT_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(agentPayload),
+        });
 
-    if (!agentResponse.ok) {
-      const errorText = await agentResponse.text();
+        if (!agentResponse.ok) {
+          const errorText = await agentResponse.text();
 
-      return res.status(502).json({
-        error: "AGENT_REQUEST_FAILED",
-        message: "The agent service failed to analyze the symbol.",
-        status: agentResponse.status,
-        details: errorText,
-      });
-    }
+          throw new Error(
+            `The agent service failed to analyze the symbol. Status ${agentResponse.status}: ${errorText}`
+          );
+        }
 
-    const thesis = await agentResponse.json();
+        return (await agentResponse.json()) as { traceId?: string };
+      }
+    );
 
     return res.json({
       thesis,
+      traceId,
       quote,
       signals: signalStrings,
       signalDetails: signals,
       news,
+      technicals,
       meta: {
         symbol,
         originalInput,

@@ -20,6 +20,12 @@ export type FinnhubNewsItem = {
   datetime: number;
 };
 
+export type TechnicalIndicators = {
+  sma20: number | null;
+  closeCount: number;
+  source: "yahoo-chart-api";
+};
+
 type FinnhubQuoteResponse = {
   c?: number;
   h?: number;
@@ -116,6 +122,57 @@ export async function getFinnhubCompanyNews(
       datetime: Number(record.datetime ?? 0),
     };
   });
+}
+
+export async function getTechnicalIndicators(
+  symbol: string
+): Promise<TechnicalIndicators | null> {
+  const cleanSymbol = symbol.trim().toUpperCase();
+  const url =
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSymbol)}` +
+    "?range=1mo&interval=1d";
+
+  try {
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      chart?: {
+        result?: Array<{
+          indicators?: {
+            quote?: Array<{
+              close?: Array<number | null>;
+            }>;
+          };
+        }>;
+      };
+    };
+
+    const closes =
+      data.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(
+        (close): close is number => typeof close === "number" && close > 0
+      ) ?? [];
+
+    const recentCloses = closes.slice(-20);
+
+    if (recentCloses.length < 10) {
+      return null;
+    }
+
+    const sma20 =
+      recentCloses.reduce((sum, close) => sum + close, 0) / recentCloses.length;
+
+    return {
+      sma20: Number(sma20.toFixed(2)),
+      closeCount: recentCloses.length,
+      source: "yahoo-chart-api",
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function isValidFinnhubQuote(

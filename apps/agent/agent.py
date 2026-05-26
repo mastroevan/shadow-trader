@@ -1,3 +1,5 @@
+import os
+
 from google.adk.agents.llm_agent import Agent
 from tools import analyze_market_signal, assess_risk, generate_watchlist_entry
 
@@ -74,13 +76,27 @@ Required JSON format:
 
   "suggestedAction": "WATCH | ALERT | AVOID",
 
-  "timeHorizon": "SHORT | MEDIUM | LONG"
+  "timeHorizon": "SHORT | MEDIUM | LONG",
+
+  "tradePlan": {
+    "entryTrigger": "string",
+    "invalidation": "string",
+    "watchConditions": []
+  },
+
+  "watchlistEntry": {
+    "symbol": "string",
+    "reason": "string",
+    "direction": "BULLISH | BEARISH | NEUTRAL",
+    "confidenceScore": 0.0,
+    "createdAt": "string"
+  }
 
 }
 
 """
 root_agent = Agent(
-    model='gemini-2.5-flash',
+    model=os.getenv('GEMINI_MODEL', 'gemini-3-pro-preview'),
     name='shadow_trader_agent',
     description='AI-powered market intelligence and signal analysis agent.',
     instruction=SHADOW_TRADER_PROMPT,

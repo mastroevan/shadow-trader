@@ -7,6 +7,7 @@ export type MarketSignal = {
     | "PRICE_CHANGE"
     | "INTRADAY_RANGE"
     | "GAP_FROM_OPEN"
+    | "SMA_TREND"
     | "QUOTE_HEALTH"
     | "NEWS_SENTIMENT";
     label: string;
@@ -22,11 +23,16 @@ export type NewsItem = {
 type GenerateSignalsInput = {
     quote: FinnhubQuote;
     news?: NewsItem[];
+    technicals?: {
+        sma20: number | null;
+        closeCount: number;
+    } | null;
 };
 
 export function generateSignals({
     quote,
     news = [],
+    technicals = null,
 }: GenerateSignalsInput): MarketSignal[] {
     const signals: MarketSignal[] = [];
 
@@ -79,6 +85,22 @@ export function generateSignals({
                     : gapFromOpenPct < -1
                         ? "Price is trading below the open"
                         : "Price is close to the open",
+        });
+    }
+
+    if (price > 0 && technicals?.sma20 && technicals.sma20 > 0) {
+        const distancePct = ((price - technicals.sma20) / technicals.sma20) * 100;
+
+        signals.push({
+            type: "SMA_TREND",
+            label: "20-day SMA trend",
+            value: Number(distancePct.toFixed(2)),
+            interpretation:
+                distancePct > 1
+                    ? `Price is above the 20-day SMA of $${technicals.sma20.toFixed(2)}, a bullish trend signal`
+                    : distancePct < -1
+                        ? `Price is below the 20-day SMA of $${technicals.sma20.toFixed(2)}, a bearish trend signal`
+                        : `Price is near the 20-day SMA of $${technicals.sma20.toFixed(2)}, suggesting a neutral trend`,
         });
     }
 
