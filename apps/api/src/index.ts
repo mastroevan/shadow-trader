@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import analyzeRouter from './routes/analyze';
 import watchlistRouter from './routes/watchlist';
+import { requireApiKey } from './middleware/apiKeyAuth';
 
 dotenv.config();
 
@@ -11,6 +12,7 @@ app.use(cors({ origin: process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://localhost
 app.use(express.json());
 
 app.get('/health', (_, res) => res.json({ status: 'ok', service: 'shadow-trader-api' }));
+app.use('/api', requireApiKey);
 app.use('/api', analyzeRouter);
 app.use('/api', watchlistRouter);
 

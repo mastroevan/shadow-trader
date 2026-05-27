@@ -10,6 +10,7 @@ import {
 import { normalizeSymbol, getAliasSuggestion } from "../utils/symbols";
 import { generateSignals } from "../utils/signals";
 import { traceAgentCall } from "../services/arizeTracker";
+import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 
 const router = Router();
 
@@ -87,13 +88,13 @@ router.post("/analyze", async (req, res) => {
         sma20: technicals?.sma20,
       },
       async () => {
-        const agentResponse = await fetch(AGENT_URL, {
+        const agentResponse = await fetchWithTimeout(AGENT_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(agentPayload),
-        });
+        }, 60000);
 
         if (!agentResponse.ok) {
           const errorText = await agentResponse.text();

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -20,6 +20,7 @@ type CreateWatchlistEntryInput = Omit<WatchlistEntry, "id" | "createdAt">;
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const WATCHLIST_PATH = path.join(DATA_DIR, "watchlist.json");
+let writeQueue = Promise.resolve();
 
 export async function listWatchlistEntries(): Promise<WatchlistEntry[]> {
   try {
@@ -35,29 +36,49 @@ export async function listWatchlistEntries(): Promise<WatchlistEntry[]> {
 export async function createWatchlistEntry(
   input: CreateWatchlistEntryInput
 ): Promise<WatchlistEntry> {
-  const entries = await listWatchlistEntries();
   const entry: WatchlistEntry = {
     ...input,
     id: randomUUID(),
     createdAt: new Date().toISOString(),
   };
 
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(WATCHLIST_PATH, JSON.stringify([entry, ...entries], null, 2));
+  await updateWatchlistEntries((entries) => [entry, ...entries]);
 
   return entry;
 }
 
 export async function deleteWatchlistEntry(id: string): Promise<boolean> {
-  const entries = await listWatchlistEntries();
-  const nextEntries = entries.filter((entry) => entry.id !== id);
+  let deleted = false;
 
-  if (nextEntries.length === entries.length) {
-    return false;
-  }
+  await updateWatchlistEntries((entries) => {
+    const nextEntries = entries.filter((entry) => entry.id !== id);
+    deleted = nextEntries.length !== entries.length;
 
+    return nextEntries;
+  });
+
+  return deleted;
+}
+
+async function updateWatchlistEntries(
+  updater: (entries: WatchlistEntry[]) => WatchlistEntry[]
+): Promise<void> {
+  const nextWrite = writeQueue.then(async () => {
+    const entries = await listWatchlistEntries();
+    const nextEntries = updater(entries);
+
+    await writeWatchlistEntries(nextEntries);
+  });
+
+  writeQueue = nextWrite.catch(() => undefined);
+
+  await nextWrite;
+}
+
+async function writeWatchlistEntries(entries: WatchlistEntry[]): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(WATCHLIST_PATH, JSON.stringify(nextEntries, null, 2));
 
-  return true;
+  const tempPath = path.join(DATA_DIR, `watchlist.${randomUUID()}.tmp`);
+  await writeFile(tempPath, JSON.stringify(entries, null, 2));
+  await rename(tempPath, WATCHLIST_PATH);
 }

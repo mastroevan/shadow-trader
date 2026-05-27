@@ -82,8 +82,16 @@ type SavedWatchlistEntry = {
   createdAt: string;
 };
 
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_KEY = process.env.NEXT_PUBLIC_SHADOW_TRADER_API_KEY;
 const DEMO_TICKERS = ['NVDA', 'AAPL', 'TSLA', 'META', 'AMZN'];
+
+function apiHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+  };
+}
 
 export default function Home() {
   const [symbol, setSymbol] = useState('NVDA');
@@ -110,9 +118,7 @@ export default function Home() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/analyze`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: apiHeaders(),
         body: JSON.stringify({ symbol: cleanSymbol }),
       });
 
@@ -147,9 +153,7 @@ export default function Home() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/watchlist`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: apiHeaders(),
         body: JSON.stringify({
           symbol: symbolLabel,
           direction: thesis.direction,

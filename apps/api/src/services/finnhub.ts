@@ -1,5 +1,7 @@
 // apps/api/src/services/finnhub.ts
 
+import { fetchWithTimeout } from "../utils/fetchWithTimeout";
+
 export type FinnhubQuote = {
   source: "finnhub";
   symbol: string;
@@ -50,7 +52,7 @@ export async function getFinnhubQuote(symbol: string): Promise<FinnhubQuote> {
     cleanSymbol
   )}&token=${encodeURIComponent(token)}`;
 
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
 
   if (!response.ok) {
     throw new Error(`Finnhub quote request failed: ${response.status}`);
@@ -97,7 +99,7 @@ export async function getFinnhubCompanyNews(
     `&to=${encodeURIComponent(toDate)}` +
     `&token=${encodeURIComponent(token)}`;
 
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
 
   if (!response.ok) {
     throw new Error(
@@ -133,7 +135,7 @@ export async function getTechnicalIndicators(
     "?range=1mo&interval=1d";
 
   try {
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
 
     if (!response.ok) {
       return null;
