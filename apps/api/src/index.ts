@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import analyzeRouter from './routes/analyze';
 import watchlistRouter from './routes/watchlist';
+import thesesRouter from './routes/theses';
 import { requireApiKey } from './middleware/apiKeyAuth';
 
 dotenv.config();
@@ -15,6 +16,7 @@ app.get('/health', (_, res) => res.json({ status: 'ok', service: 'shadow-trader-
 app.use('/api', requireApiKey);
 app.use('/api', analyzeRouter);
 app.use('/api', watchlistRouter);
+app.use('/api', thesesRouter);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Shadow Trader API running on port ${PORT}`));

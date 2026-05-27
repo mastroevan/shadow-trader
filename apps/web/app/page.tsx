@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, ReactNode, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   ArrowDownRight,
@@ -9,8 +9,11 @@ import {
   BookmarkPlus,
   CheckCircle2,
   ClipboardList,
+  FileClock,
+  History,
   Newspaper,
   Search,
+  ShieldCheck,
   Sparkles,
   Target,
   TrendingUp,
@@ -65,6 +68,8 @@ type NewsItem = {
 type AnalyzeResponse = {
   thesis?: TradingThesis;
   traceId?: string;
+  thesisRecord?: ThesisRecord;
+  thesisRecordId?: string;
   signalDetails?: SignalDetail[];
   quote?: Quote;
   news?: NewsItem[];
@@ -80,6 +85,39 @@ type SavedWatchlistEntry = {
   id: string;
   symbol: string;
   createdAt: string;
+};
+
+type ThesisStatus = 'ACTIVE' | 'TRIGGERED' | 'INVALIDATED' | 'EXPIRED' | 'RESOLVED';
+
+type ThesisOutcome = {
+  status: ThesisStatus;
+  resolvedAt: string;
+  finalPrice: number | null;
+  notes: string;
+};
+
+type ThesisRecord = {
+  id: string;
+  symbol: string;
+  direction: string;
+  suggestedAction: string;
+  confidenceScore: number | null;
+  status: ThesisStatus;
+  generatedAt: string;
+  expiresAt: string;
+  initialPrice: number | null;
+  traceId: string;
+  evidence?: {
+    signals?: string[];
+    signalDetails?: SignalDetail[];
+    news?: NewsItem[];
+    technicals?: {
+      sma20?: number | null;
+      closeCount?: number;
+      source?: string;
+    } | null;
+  };
+  outcome: ThesisOutcome | null;
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -99,7 +137,28 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [savingWatchlist, setSavingWatchlist] = useState(false);
   const [savedEntry, setSavedEntry] = useState<SavedWatchlistEntry | null>(null);
+  const [recentTheses, setRecentTheses] = useState<ThesisRecord[]>([]);
+  const [resolvingOutcome, setResolvingOutcome] = useState<ThesisStatus | null>(null);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    void loadRecentTheses();
+  }, []);
+
+  async function loadRecentTheses() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/theses`, {
+        headers: apiHeaders(),
+      });
+
+      if (!response.ok) return;
+
+      const data = (await response.json()) as { records?: ThesisRecord[] };
+      setRecentTheses((data.records ?? []).slice(0, 5));
+    } catch {
+      // Thesis history is a trust enhancement, not a blocker for fresh analysis.
+    }
+  }
 
   async function analyzeTicker(nextSymbol?: string) {
     const cleanSymbol = (nextSymbol ?? symbol).trim().toUpperCase();
@@ -129,6 +188,7 @@ export default function Home() {
       }
 
       setResult(data);
+      void loadRecentTheses();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong.';
       setError(message === 'Failed to fetch' ? 'Could not reach the analysis API. Make sure the backend is running on port 3001.' : message);
@@ -182,8 +242,43 @@ export default function Home() {
     }
   }
 
+  async function handleResolveThesis(status: ThesisStatus) {
+    const thesisRecordId = result?.thesisRecord?.id ?? result?.thesisRecordId;
+    if (!thesisRecordId || !quote?.price) return;
+
+    setResolvingOutcome(status);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/theses/${thesisRecordId}/outcome`, {
+        method: 'PATCH',
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          status,
+          finalPrice: quote.price,
+          notes: `${status.toLowerCase()} from the analysis workspace.`,
+        }),
+      });
+
+      const data = (await response.json()) as { record?: ThesisRecord; message?: string; error?: string };
+
+      if (!response.ok || !data.record) {
+        throw new Error(data.message ?? data.error ?? 'Could not update thesis outcome.');
+      }
+
+      setResult((current) => current ? { ...current, thesisRecord: data.record } : current);
+      void loadRecentTheses();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not update thesis outcome.';
+      setError(message);
+    } finally {
+      setResolvingOutcome(null);
+    }
+  }
+
   const thesis = result?.thesis;
   const quote = result?.quote;
+  const thesisRecord = result?.thesisRecord ?? null;
   const symbolLabel = thesis?.symbol ?? quote?.symbol ?? result?.meta?.symbol ?? symbol.toUpperCase();
   const priceChangePct = useMemo(() => {
     if (!quote?.price || !quote.previousClose) return null;
@@ -305,6 +400,20 @@ export default function Home() {
           </section>
         )}
 
+        {(thesisRecord || recentTheses.length > 0) && (
+          <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+            {thesisRecord && (
+              <TrustLedgerCard
+                record={thesisRecord}
+                resolvingOutcome={resolvingOutcome}
+                onResolve={handleResolveThesis}
+              />
+            )}
+
+            <RecentThesesCard records={recentTheses} />
+          </section>
+        )}
+
         {thesis && tradePlan && (
           <ActionPlanCard
             plan={tradePlan}
@@ -387,6 +496,119 @@ function ActionPlanCard({
           Saved watchlist entry {savedEntry.id.slice(0, 8)} for {savedEntry.symbol}.
         </p>
       )}
+    </section>
+  );
+}
+
+function TrustLedgerCard({
+  record,
+  resolvingOutcome,
+  onResolve,
+}: {
+  record: ThesisRecord;
+  resolvingOutcome: ThesisStatus | null;
+  onResolve: (status: ThesisStatus) => void;
+}) {
+  const evidence = record.evidence;
+  const evidenceStats = [
+    { label: 'Signals', value: String(evidence?.signals?.length ?? evidence?.signalDetails?.length ?? 0) },
+    { label: 'Headlines', value: String(evidence?.news?.length ?? 0) },
+    { label: 'SMA', value: evidence?.technicals?.sma20 ? formatCurrency(evidence.technicals.sma20) : 'N/A' },
+  ];
+  const isClosed = record.status !== 'ACTIVE';
+  const outcomeStatuses: ThesisStatus[] = ['TRIGGERED', 'INVALIDATED', 'EXPIRED', 'RESOLVED'];
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="flex items-center gap-2">
+          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-sm font-bold uppercase text-zinc-500">Trust Ledger</p>
+            <h3 className="text-2xl font-bold">Evidence-backed thesis record</h3>
+          </div>
+        </div>
+
+        <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusClass(record.status)}`}>
+          {record.status}
+        </span>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-4">
+        <MiniStat label="Record" value={record.id.slice(0, 8)} />
+        <MiniStat label="Generated" value={formatDate(record.generatedAt)} />
+        <MiniStat label="Expires" value={formatDate(record.expiresAt)} />
+        <MiniStat label="Start Price" value={formatCurrency(record.initialPrice ?? undefined)} />
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {evidenceStats.map((item) => (
+          <div key={item.label} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+            <p className="text-xs font-bold uppercase text-zinc-500">{item.label}</p>
+            <p className="mt-2 text-lg font-bold text-zinc-950">{item.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {record.outcome && (
+        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">
+          Outcome marked {record.outcome.status.toLowerCase()} at {formatDate(record.outcome.resolvedAt)}
+          {record.outcome.finalPrice ? ` near ${formatCurrency(record.outcome.finalPrice)}.` : '.'}
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        {outcomeStatuses.map((status) => (
+          <button
+            key={status}
+            type="button"
+            disabled={Boolean(resolvingOutcome) || isClosed}
+            onClick={() => onResolve(status)}
+            className="inline-flex min-h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {resolvingOutcome === status ? 'Saving...' : `Mark ${status.toLowerCase()}`}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RecentThesesCard({ records }: { records: ThesisRecord[] }) {
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+      <div className="mb-5 flex items-center gap-2">
+        <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
+          <History className="h-5 w-5" />
+        </div>
+        <h3 className="text-xl font-bold">Recent Thesis Records</h3>
+      </div>
+
+      <div className="space-y-3">
+        {records.length > 0 ? (
+          records.map((record) => (
+            <div key={record.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <FileClock className="h-4 w-4 text-emerald-700" />
+                  <p className="text-sm font-bold text-zinc-950">{record.symbol}</p>
+                </div>
+                <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${statusClass(record.status)}`}>
+                  {record.status}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-semibold text-zinc-600">
+                <span>{record.direction}</span>
+                <span className="text-right">{formatDate(record.generatedAt)}</span>
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-zinc-500">No thesis records yet.</p>
+        )}
+      </div>
     </section>
   );
 }
@@ -570,6 +792,24 @@ function formatCurrency(value?: number) {
     currency: 'USD',
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatDate(value?: string) {
+  if (!value) return 'N/A';
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function statusClass(status: ThesisStatus) {
+  if (status === 'ACTIVE') return 'bg-emerald-50 text-emerald-700';
+  if (status === 'INVALIDATED') return 'bg-red-50 text-red-700';
+  if (status === 'EXPIRED') return 'bg-amber-50 text-amber-700';
+  return 'bg-zinc-100 text-zinc-700';
 }
 
 function formatSignalValue(signal: SignalDetail) {

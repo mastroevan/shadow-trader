@@ -11,6 +11,7 @@ import { normalizeSymbol, getAliasSuggestion } from "../utils/symbols";
 import { generateSignals } from "../utils/signals";
 import { traceAgentCall } from "../services/arizeTracker";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout";
+import { createThesisRecord } from "../services/theses";
 
 const router = Router();
 
@@ -108,9 +109,29 @@ router.post("/analyze", async (req, res) => {
       }
     );
 
+    const thesisRecord = await createThesisRecord({
+      symbol,
+      direction: getThesisString(thesis, "direction", "NEUTRAL"),
+      suggestedAction: getThesisString(thesis, "suggestedAction", "WATCH"),
+      confidenceScore: getThesisNumber(thesis, "confidenceScore"),
+      thesis,
+      evidence: {
+        quote,
+        signals: signalStrings,
+        signalDetails: signals,
+        news,
+        technicals,
+      },
+      traceId,
+      initialPrice: quote.price,
+      timeHorizon: getThesisString(thesis, "timeHorizon", "1W"),
+    });
+
     return res.json({
       thesis,
       traceId,
+      thesisRecord,
+      thesisRecordId: thesisRecord.id,
       quote,
       signals: signalStrings,
       signalDetails: signals,
@@ -135,5 +156,29 @@ router.post("/analyze", async (req, res) => {
     });
   }
 });
+
+function getThesisString(
+  thesis: unknown,
+  key: string,
+  fallback: string
+): string {
+  if (!thesis || typeof thesis !== "object" || !(key in thesis)) {
+    return fallback;
+  }
+
+  const value = (thesis as Record<string, unknown>)[key];
+
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function getThesisNumber(thesis: unknown, key: string): number | null {
+  if (!thesis || typeof thesis !== "object" || !(key in thesis)) {
+    return null;
+  }
+
+  const value = (thesis as Record<string, unknown>)[key];
+
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
 
 export default router;
