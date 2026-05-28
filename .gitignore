@@ -5,6 +5,7 @@ venv/
 dist/
 build/
 .env
+apps/api/data/
 .DS_Store
 __pycache__/
 *.pyc
