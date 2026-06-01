@@ -2,9 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import analyzeRouter from './routes/analyze';
+import automationRouter from './routes/automation';
 import watchlistRouter from './routes/watchlist';
 import thesesRouter from './routes/theses';
 import { requireApiKey } from './middleware/apiKeyAuth';
+import { startAutomationScheduler } from './services/automationScheduler';
 
 dotenv.config();
 
@@ -17,6 +19,10 @@ app.use('/api', requireApiKey);
 app.use('/api', analyzeRouter);
 app.use('/api', watchlistRouter);
 app.use('/api', thesesRouter);
+app.use('/api', automationRouter);
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Shadow Trader API running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Shadow Trader API running on port ${PORT}`);
+  startAutomationScheduler();
+});

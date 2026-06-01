@@ -106,6 +106,7 @@ APP_NAME = "shadow_trader"
 ALLOWED_DIRECTIONS = {"BULLISH", "BEARISH", "NEUTRAL"}
 ALLOWED_ACTIONS = {"WATCH", "ALERT", "AVOID"}
 ALLOWED_HORIZONS = {"SHORT", "MEDIUM", "LONG", "1D", "1W", "1M"}
+AGENT_RUN_TIMEOUT_SECONDS = float(os.getenv("AGENT_RUN_TIMEOUT_SECONDS", "18"))
 
 
 def _require_string(value: object, field_name: str) -> str:
@@ -303,7 +304,15 @@ Do not include any text outside the JSON object.
 """.strip()
 
     try:
-        raw_response = await run_agent(prompt, session_id)
+        raw_response = await asyncio.wait_for(
+            run_agent(prompt, session_id),
+            timeout=AGENT_RUN_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=f"Agent timed out after {AGENT_RUN_TIMEOUT_SECONDS:.0f} seconds"
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
 

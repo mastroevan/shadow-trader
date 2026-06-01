@@ -10,8 +10,10 @@ import {
   CheckCircle2,
   ClipboardList,
   FileClock,
+  Gauge,
   History,
   Newspaper,
+  RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -68,6 +70,7 @@ type NewsItem = {
 type AnalyzeResponse = {
   thesis?: TradingThesis;
   traceId?: string;
+  agentStatus?: 'AI_AGENT' | 'RULE_BASED_FALLBACK';
   thesisRecord?: ThesisRecord;
   thesisRecordId?: string;
   signalDetails?: SignalDetail[];
@@ -120,6 +123,38 @@ type ThesisRecord = {
   outcome: ThesisOutcome | null;
 };
 
+type AlertRecord = {
+  id: string;
+  thesisRecordId?: string;
+  symbol: string;
+  type: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH';
+  status: 'OPEN' | 'ACKNOWLEDGED';
+  title: string;
+  message: string;
+  createdAt: string;
+};
+
+type DailyBrief = {
+  generatedAt: string;
+  activeCount: number;
+  openAlertCount: number;
+  expiringSoonCount: number;
+  resolvedTodayCount: number;
+  highlights: string[];
+};
+
+type MonitorRunSummary = {
+  checkedAt: string;
+  checked: number;
+  alertsCreated: number;
+  expired: number;
+  errors: Array<{
+    symbol: string;
+    message: string;
+  }>;
+};
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const API_KEY = process.env.NEXT_PUBLIC_SHADOW_TRADER_API_KEY;
 const DEMO_TICKERS = ['NVDA', 'AAPL', 'TSLA', 'META', 'AMZN'];
@@ -138,11 +173,16 @@ export default function Home() {
   const [savingWatchlist, setSavingWatchlist] = useState(false);
   const [savedEntry, setSavedEntry] = useState<SavedWatchlistEntry | null>(null);
   const [recentTheses, setRecentTheses] = useState<ThesisRecord[]>([]);
+  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
+  const [dailyBrief, setDailyBrief] = useState<DailyBrief | null>(null);
+  const [monitorSummary, setMonitorSummary] = useState<MonitorRunSummary | null>(null);
+  const [runningMonitor, setRunningMonitor] = useState(false);
   const [resolvingOutcome, setResolvingOutcome] = useState<ThesisStatus | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     void loadRecentTheses();
+    void loadAutomationDesk();
   }, []);
 
   async function loadRecentTheses() {
@@ -157,6 +197,80 @@ export default function Home() {
       setRecentTheses((data.records ?? []).slice(0, 5));
     } catch {
       // Thesis history is a trust enhancement, not a blocker for fresh analysis.
+    }
+  }
+
+  async function loadAutomationDesk() {
+    await Promise.all([loadAlerts(), loadDailyBrief()]);
+  }
+
+  async function loadAlerts() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/alerts`, {
+        headers: apiHeaders(),
+      });
+
+      if (!response.ok) return;
+
+      const data = (await response.json()) as { alerts?: AlertRecord[] };
+      setAlerts(data.alerts ?? []);
+    } catch {
+      // Automation alerts are optional during local setup.
+    }
+  }
+
+  async function loadDailyBrief() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/daily-brief`, {
+        headers: apiHeaders(),
+      });
+
+      if (!response.ok) return;
+
+      const data = (await response.json()) as { brief?: DailyBrief };
+      setDailyBrief(data.brief ?? null);
+    } catch {
+      // Daily brief is optional during local setup.
+    }
+  }
+
+  async function handleRunMonitor() {
+    setRunningMonitor(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/automation/monitor`, {
+        method: 'POST',
+        headers: apiHeaders(),
+      });
+      const data = (await response.json()) as { summary?: MonitorRunSummary; message?: string; error?: string };
+
+      if (!response.ok || !data.summary) {
+        throw new Error(data.message ?? data.error ?? 'Could not run thesis monitor.');
+      }
+
+      setMonitorSummary(data.summary);
+      await Promise.all([loadRecentTheses(), loadAutomationDesk()]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not run thesis monitor.';
+      setError(message);
+    } finally {
+      setRunningMonitor(false);
+    }
+  }
+
+  async function handleAcknowledgeAlert(alertId: string) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/alerts/${alertId}/acknowledge`, {
+        method: 'PATCH',
+        headers: apiHeaders(),
+      });
+
+      if (!response.ok) return;
+
+      await loadAutomationDesk();
+    } catch {
+      // Keep the alert visible if acknowledgement fails.
     }
   }
 
@@ -189,6 +303,7 @@ export default function Home() {
 
       setResult(data);
       void loadRecentTheses();
+      void loadAutomationDesk();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong.';
       setError(message === 'Failed to fetch' ? 'Could not reach the analysis API. Make sure the backend is running on port 3001.' : message);
@@ -268,6 +383,7 @@ export default function Home() {
 
       setResult((current) => current ? { ...current, thesisRecord: data.record } : current);
       void loadRecentTheses();
+      void loadAutomationDesk();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not update thesis outcome.';
       setError(message);
@@ -355,6 +471,21 @@ export default function Home() {
           </section>
         )}
 
+        {result?.agentStatus === 'RULE_BASED_FALLBACK' && (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold leading-6 text-amber-900 shadow-sm">
+            The AI agent did not respond before the timeout, so this analysis used a rule-based fallback. Re-run analysis when the agent is responsive for a full Gemini thesis.
+          </section>
+        )}
+
+        <AutomationDesk
+          alerts={alerts}
+          dailyBrief={dailyBrief}
+          monitorSummary={monitorSummary}
+          runningMonitor={runningMonitor}
+          onRunMonitor={handleRunMonitor}
+          onAcknowledgeAlert={handleAcknowledgeAlert}
+        />
+
         {result && quote && (
           <section className="grid gap-6 lg:grid-cols-[0.95fr_1.25fr]">
             <QuoteCard symbol={symbolLabel} quote={quote} priceChangePct={priceChangePct} isPositive={isPositive} />
@@ -438,6 +569,111 @@ export default function Home() {
         )}
       </div>
     </main>
+  );
+}
+
+function AutomationDesk({
+  alerts,
+  dailyBrief,
+  monitorSummary,
+  runningMonitor,
+  onRunMonitor,
+  onAcknowledgeAlert,
+}: {
+  alerts: AlertRecord[];
+  dailyBrief: DailyBrief | null;
+  monitorSummary: MonitorRunSummary | null;
+  runningMonitor: boolean;
+  onRunMonitor: () => void;
+  onAcknowledgeAlert: (alertId: string) => void;
+}) {
+  const openAlerts = alerts.filter((alert) => alert.status === 'OPEN').slice(0, 4);
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="flex items-center gap-2">
+          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
+            <Gauge className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-sm font-bold uppercase text-zinc-500">Automation Desk</p>
+            <h3 className="text-2xl font-bold">Monitor active theses and review alerts</h3>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          disabled={runningMonitor}
+          onClick={onRunMonitor}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+        >
+          <RefreshCw className={`h-4 w-4 ${runningMonitor ? 'animate-spin' : ''}`} />
+          {runningMonitor ? 'Running...' : 'Run Monitor'}
+        </button>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-4">
+        <MiniStat label="Active" value={String(dailyBrief?.activeCount ?? 0)} />
+        <MiniStat label="Open Alerts" value={String(dailyBrief?.openAlertCount ?? openAlerts.length)} />
+        <MiniStat label="Expiring" value={String(dailyBrief?.expiringSoonCount ?? 0)} />
+        <MiniStat label="Resolved Today" value={String(dailyBrief?.resolvedTodayCount ?? 0)} />
+      </div>
+
+      {dailyBrief?.highlights && dailyBrief.highlights.length > 0 && (
+        <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+          <p className="text-xs font-bold uppercase text-zinc-500">Daily Brief</p>
+          <ul className="mt-3 space-y-2">
+            {dailyBrief.highlights.slice(0, 4).map((highlight) => (
+              <li key={highlight} className="text-sm font-semibold leading-6 text-zinc-800">
+                {highlight}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {monitorSummary && (
+        <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+          Monitor checked {monitorSummary.checked} active thesis records and created {monitorSummary.alertsCreated} alerts.
+        </p>
+      )}
+
+      <div className="mt-5 grid gap-3">
+        {openAlerts.length > 0 ? (
+          openAlerts.map((alert) => (
+            <div key={alert.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${severityClass(alert.severity)}`}>
+                      {alert.severity}
+                    </span>
+                    <p className="text-sm font-bold text-zinc-950">{alert.title}</p>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-zinc-600">{alert.message}</p>
+                  <p className="mt-2 text-xs font-semibold uppercase text-zinc-500">
+                    {alert.symbol} · {formatDate(alert.createdAt)}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onAcknowledgeAlert(alert.id)}
+                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700"
+                >
+                  Acknowledge
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
+            No open automation alerts.
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -809,6 +1045,12 @@ function statusClass(status: ThesisStatus) {
   if (status === 'ACTIVE') return 'bg-emerald-50 text-emerald-700';
   if (status === 'INVALIDATED') return 'bg-red-50 text-red-700';
   if (status === 'EXPIRED') return 'bg-amber-50 text-amber-700';
+  return 'bg-zinc-100 text-zinc-700';
+}
+
+function severityClass(severity: AlertRecord['severity']) {
+  if (severity === 'HIGH') return 'bg-red-50 text-red-700';
+  if (severity === 'MEDIUM') return 'bg-amber-50 text-amber-700';
   return 'bg-zinc-100 text-zinc-700';
 }
 
