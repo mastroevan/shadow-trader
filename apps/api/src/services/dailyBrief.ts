@@ -30,10 +30,10 @@ export async function generateDailyBrief(): Promise<DailyBrief> {
     return record.outcome.resolvedAt.slice(0, 10) === generatedAt.toISOString().slice(0, 10);
   });
   const highlights = [
-    `${activeRecords.length} active thesis record${activeRecords.length === 1 ? "" : "s"} under monitoring.`,
-    `${openAlerts.length} open automation alert${openAlerts.length === 1 ? "" : "s"} needs review.`,
-    `${expiringSoon.length} active thesis record${expiringSoon.length === 1 ? "" : "s"} expires within 24 hours.`,
-    `${resolvedToday.length} thesis outcome${resolvedToday.length === 1 ? "" : "s"} marked today.`,
+    `${activeRecords.length} active ${pluralize("thesis record", activeRecords.length)} under monitoring.`,
+    `${openAlerts.length} open automation ${pluralize("alert", openAlerts.length)} ${openAlerts.length === 1 ? "needs" : "need"} review.`,
+    `${expiringSoon.length} active ${pluralize("thesis record", expiringSoon.length)} ${expiringSoon.length === 1 ? "expires" : "expire"} within 24 hours.`,
+    `${resolvedToday.length} thesis ${pluralize("outcome", resolvedToday.length)} marked today.`,
   ];
 
   const latestHighPriorityAlert = openAlerts.find((alert) => alert.severity === "HIGH");
@@ -49,4 +49,8 @@ export async function generateDailyBrief(): Promise<DailyBrief> {
     resolvedTodayCount: resolvedToday.length,
     highlights,
   };
+}
+
+function pluralize(noun: string, count: number) {
+  return count === 1 ? noun : `${noun}s`;
 }

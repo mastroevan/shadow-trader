@@ -106,7 +106,7 @@ APP_NAME = "shadow_trader"
 ALLOWED_DIRECTIONS = {"BULLISH", "BEARISH", "NEUTRAL"}
 ALLOWED_ACTIONS = {"WATCH", "ALERT", "AVOID"}
 ALLOWED_HORIZONS = {"SHORT", "MEDIUM", "LONG", "1D", "1W", "1M"}
-AGENT_RUN_TIMEOUT_SECONDS = float(os.getenv("AGENT_RUN_TIMEOUT_SECONDS", "18"))
+AGENT_RUN_TIMEOUT_SECONDS = float(os.getenv("AGENT_RUN_TIMEOUT_SECONDS", "55"))
 
 
 def _require_string(value: object, field_name: str) -> str:

@@ -18,7 +18,7 @@ const router = Router();
 
 const AGENT_URL =
   process.env.AGENT_URL ?? "http://localhost:8000/analyze";
-const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 20000);
+const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 65000);
 
 router.post("/analyze", async (req, res) => {
   try {
@@ -249,7 +249,7 @@ function buildFallbackThesis(input: AgentThesisInput, traceId: string) {
     direction,
     thesis:
       `Rule-based fallback thesis for ${input.symbol}: price is ${priceChangePct.toFixed(2)}% versus the previous close. ` +
-      `${smaTrend?.interpretation ?? "Trend context is limited."} ` +
+      `${asSentence(smaTrend?.interpretation ?? "Trend context is limited.")} ` +
       `${headline ? `Latest headline reviewed: ${headline}` : "No recent headline was available."}`,
     confidenceScore: 0.35,
     bullishFactors: [
@@ -292,6 +292,10 @@ function buildFallbackThesis(input: AgentThesisInput, traceId: string) {
       createdAt: new Date().toISOString(),
     },
   };
+}
+
+function asSentence(text: string) {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
 function getThesisString(
