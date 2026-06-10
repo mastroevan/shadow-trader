@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "proof:e2e": "node scripts/e2e_proof.mjs"
+  },
   "dependencies": {
     "@arizeai/openinference-semantic-conventions": "^2.3.0",
     "@opentelemetry/exporter-otlp-http": "^0.26.0",

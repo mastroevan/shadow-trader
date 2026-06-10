@@ -93,13 +93,32 @@ Optional:
 - `NEXT_PUBLIC_FRONTEND_URL`
 - `PORT`
 
+## Deployment
+
+Hosted demo target: [https://shadow-trader-web.onrender.com](https://shadow-trader-web.onrender.com)
+
+This repo includes a Render Blueprint at `render.yaml` plus Dockerfiles for the web, API, and agent services. See [docs/deployment.md](docs/deployment.md) for the exact environment variables and deployment order.
+
+## Proof Run
+
+With all three services running, execute:
+
+```bash
+npm run proof:e2e -- --write
+```
+
+The script runs `NVDA`, requires a real Gemini agent response, confirms Finnhub quote/news data, saves the watchlist entry, runs the monitor, and writes sanitized proof to `docs/proof/latest-e2e-proof.json`.
+
+Latest local proof summary: [docs/proof/phase-9-10-live-proof.md](docs/proof/phase-9-10-live-proof.md)
+
 ## Submission Notes
 
-- Hosted project URL: add this in Devpost after deployment.
-- Public repository URL: add the GitHub URL in Devpost.
+- Hosted project URL: `https://shadow-trader-web.onrender.com`
+- Public repository URL: add the GitHub URL in Devpost after publishing.
 - License: included in this repository.
 - Demo video target: about 3 minutes.
 - Track selection: Arize partner bucket, Financial Services use case.
+- Devpost checklist: [docs/devpost-checklist.md](docs/devpost-checklist.md)
 
 ## Arize / Agent Builder Qualification
 

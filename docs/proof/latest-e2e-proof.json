@@ -1,0 +1,39 @@
+{
+  "startedAt": "2026-06-10T02:56:21.813Z",
+  "completedAt": "2026-06-10T02:56:45.402Z",
+  "apiBaseUrl": "http://127.0.0.1:3001",
+  "symbol": "NVDA",
+  "health": {
+    "status": "ok",
+    "service": "shadow-trader-api"
+  },
+  "analysis": {
+    "agentStatus": "AI_AGENT",
+    "traceId": "7613488f-1835-4b3e-8eb3-1fa450e0a405",
+    "thesisRecordId": "b6337737-cd8e-495d-9a09-1e67d4f5cd20",
+    "quote": {
+      "source": "finnhub",
+      "symbol": "NVDA",
+      "price": 208.19,
+      "previousClose": 208.64,
+      "timestamp": 1781035200
+    },
+    "newsCount": 10,
+    "firstHeadline": "Worried About Which AI Stock to Buy? This Low-Cost ETF Lets You Own the Whole Trade.",
+    "thesisDirection": "NEUTRAL",
+    "suggestedAction": "WATCH",
+    "confidenceScore": 0.55
+  },
+  "watchlist": {
+    "id": "6131be81-fc31-4a93-a44a-2d928089f917",
+    "symbol": "NVDA",
+    "traceId": "7613488f-1835-4b3e-8eb3-1fa450e0a405"
+  },
+  "monitor": {
+    "checkedAt": "2026-06-10T02:56:45.007Z",
+    "checked": 4,
+    "alertsCreated": 0,
+    "expired": 0,
+    "errors": []
+  }
+}

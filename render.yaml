@@ -1,0 +1,63 @@
+services:
+  - type: web
+    name: shadow-trader-agent
+    runtime: docker
+    dockerfilePath: apps/agent/Dockerfile
+    dockerContext: apps/agent
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GOOGLE_GENAI_USE_VERTEXAI
+        sync: false
+      - key: GOOGLE_CLOUD_PROJECT
+        sync: false
+      - key: GOOGLE_CLOUD_LOCATION
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-pro
+      - key: ARIZE_API_KEY
+        sync: false
+      - key: ARIZE_SPACE_KEY
+        sync: false
+      - key: AGENT_ALLOWED_ORIGINS
+        value: https://shadow-trader-web.onrender.com,https://shadow-trader-api.onrender.com
+
+  - type: web
+    name: shadow-trader-api
+    runtime: docker
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: apps/api
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: AGENT_URL
+        value: https://shadow-trader-agent.onrender.com/analyze
+      - key: AGENT_TIMEOUT_MS
+        value: 65000
+      - key: AUTOMATION_ENABLED
+        value: true
+      - key: AUTOMATION_INTERVAL_MS
+        value: 900000
+      - key: NEXT_PUBLIC_FRONTEND_URL
+        value: https://shadow-trader-web.onrender.com
+      - key: SHADOW_TRADER_API_KEY
+        sync: false
+
+  - type: web
+    name: shadow-trader-web
+    runtime: docker
+    dockerfilePath: apps/web/Dockerfile
+    dockerContext: apps/web
+    plan: starter
+    healthCheckPath: /
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://shadow-trader-api.onrender.com
+      - key: NEXT_PUBLIC_SHADOW_TRADER_API_KEY
+        sync: false
