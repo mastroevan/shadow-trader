@@ -140,7 +140,7 @@ const generateWatchlistEntry = {
   name: "generate_watchlist_entry",
 
   description:
-    "Generate a structured watchlist entry for a monitored stock.",
+    "Generate a structured watchlist entry for a saved stock setup.",
 
   parameters: {
     type: "object",

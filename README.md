@@ -14,7 +14,7 @@ Partner superpower: Arize/OpenTelemetry traces make each Gemini agent run inspec
 - Adds technical context with a 20-day SMA trend signal.
 - Sends quote, signals, and headlines to a Gemini-powered Python ADK agent.
 - Produces a structured thesis with exactly two bullish and two bearish factors.
-- Generates an actionable watchlist plan with trigger, invalidation, and monitoring conditions.
+- Generates an actionable watchlist plan with trigger, invalidation, and watch conditions.
 - Saves the plan to a local watchlist through the Node API.
 - Emits Arize-compatible trace metadata for agent observability.
 
@@ -39,7 +39,7 @@ flowchart LR
 3. Show the quote card, signal cards, headlines, and AI thesis.
 4. Point out the trace id and Arize observability hook.
 5. Click `Add to Watchlist`.
-6. Explain that the agent moved from analysis into a monitored action plan.
+6. Explain that the agent moved from analysis into a saved watchlist setup.
 
 ## Local Setup
 
@@ -107,7 +107,7 @@ With all three services running, execute:
 npm run proof:e2e -- --write
 ```
 
-The script runs `NVDA`, requires a real Gemini agent response, confirms Finnhub quote/news data, saves the watchlist entry, runs the monitor, and writes sanitized proof to `docs/proof/latest-e2e-proof.json`.
+The script runs `NVDA`, requires a real Gemini agent response, confirms Finnhub quote/news data, saves the watchlist entry, and writes sanitized proof to `docs/proof/latest-e2e-proof.json`.
 
 Latest local proof summary: [docs/proof/phase-9-10-live-proof.md](docs/proof/phase-9-10-live-proof.md)
 

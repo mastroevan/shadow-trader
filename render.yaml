@@ -40,10 +40,6 @@ services:
         value: https://shadow-trader-agent.onrender.com/analyze
       - key: AGENT_TIMEOUT_MS
         value: 65000
-      - key: AUTOMATION_ENABLED
-        value: true
-      - key: AUTOMATION_INTERVAL_MS
-        value: 900000
       - key: NEXT_PUBLIC_FRONTEND_URL
         value: https://shadow-trader-web.onrender.com
       - key: SHADOW_TRADER_API_KEY

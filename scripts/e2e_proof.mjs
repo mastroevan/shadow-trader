@@ -83,12 +83,6 @@ const watchlist = await requestJson("/api/watchlist", {
 assert(watchlist.entry?.id, "Watchlist entry was not saved.");
 assert(watchlist.entry?.traceId === analysis.traceId, "Watchlist entry did not preserve trace ID.");
 
-const monitor = await requestJson("/api/automation/monitor", {
-  method: "POST",
-});
-
-assert(typeof monitor.summary?.checked === "number", "Monitor summary did not include checked count.");
-
 const proof = {
   startedAt,
   completedAt: new Date().toISOString(),
@@ -117,7 +111,6 @@ const proof = {
     symbol: watchlist.entry.symbol,
     traceId: watchlist.entry.traceId,
   },
-  monitor: monitor.summary,
 };
 
 if (shouldWrite) {

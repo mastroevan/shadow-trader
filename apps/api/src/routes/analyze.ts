@@ -265,7 +265,7 @@ function buildFallbackThesis(input: AgentThesisInput, traceId: string) {
       newsSentiment?.interpretation ?? "Headline sentiment could not be fully evaluated.",
     ],
     riskExplanation:
-      "This is a degraded rule-based fallback because the AI agent did not return in time. Treat it as a monitoring note, not a full AI thesis.",
+      "This is a degraded rule-based fallback because the AI agent did not return in time. Treat it as a lower-confidence note, not a full AI thesis.",
     suggestedAction,
     timeHorizon: "1W",
     traceId,

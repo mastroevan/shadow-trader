@@ -19,13 +19,6 @@ export type ThesisOutcome = {
   notes: string;
 };
 
-export type ThesisAutomationState = {
-  lastCheckedAt: string;
-  lastPrice: number | null;
-  priceChangePct: number | null;
-  latestAlertId: string | null;
-};
-
 export type ThesisRecord = {
   id: string;
   symbol: string;
@@ -40,7 +33,6 @@ export type ThesisRecord = {
   expiresAt: string;
   initialPrice: number | null;
   outcome: ThesisOutcome | null;
-  automation?: ThesisAutomationState;
 };
 
 type CreateThesisRecordInput = Omit<
@@ -108,30 +100,6 @@ export async function updateThesisOutcome(
           ...outcome,
           resolvedAt: new Date().toISOString(),
         },
-      };
-
-      return updatedRecord;
-    });
-  });
-
-  return updatedRecord;
-}
-
-export async function updateThesisAutomation(
-  id: string,
-  automation: ThesisAutomationState
-): Promise<ThesisRecord | null> {
-  let updatedRecord: ThesisRecord | null = null;
-
-  await updateThesisRecords((records) => {
-    return records.map((record) => {
-      if (record.id !== id) {
-        return record;
-      }
-
-      updatedRecord = {
-        ...record,
-        automation,
       };
 
       return updatedRecord;

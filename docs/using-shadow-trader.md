@@ -95,49 +95,6 @@ When you analyze a ticker, the backend now creates a persistent thesis record co
 
 This is the product's trust layer: the AI thesis is tied to the evidence available when the thesis was generated.
 
-## Phase 2 Automation: What It Does
-
-Phase 2 adds a local automation layer on top of thesis records.
-
-The API can now monitor active theses and create alerts when:
-
-- a bullish thesis moves materially higher from its start price
-- a bullish thesis moves materially lower and may be invalidated
-- a bearish thesis moves materially lower from its start price
-- a bearish thesis moves materially higher and may be invalidated
-- a thesis reaches its expiration window
-- monitoring fails for a thesis
-
-Automation is local and conservative. It creates alerts and status updates; it does not place trades.
-
-## Using The Automation Desk
-
-The `Automation Desk` card appears near the top of the app.
-
-It shows:
-
-- number of active thesis records
-- number of open alerts
-- thesis records expiring soon
-- thesis outcomes resolved today
-- a short daily brief
-- recent open automation alerts
-
-Click `Run Monitor` to manually check active thesis records immediately.
-
-When alerts appear, review them and click `Acknowledge` after you have handled them.
-
-The backend also starts a scheduler when the API boots. By default it checks active theses every 15 minutes.
-
-Configure it with:
-
-```text
-AUTOMATION_ENABLED=true
-AUTOMATION_INTERVAL_MS=900000
-```
-
-Set `AUTOMATION_ENABLED=false` to disable the background scheduler.
-
 ## Using The Trust Ledger
 
 After an analysis completes, the page shows a `Trust Ledger` card.
@@ -223,15 +180,6 @@ Thesis trust endpoints:
 GET /api/theses
 GET /api/theses/:id
 PATCH /api/theses/:id/outcome
-```
-
-Automation endpoints:
-
-```text
-GET /api/alerts
-PATCH /api/alerts/:id/acknowledge
-POST /api/automation/monitor
-GET /api/daily-brief
 ```
 
 Watchlist endpoints:

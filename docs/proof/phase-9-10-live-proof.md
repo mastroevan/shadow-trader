@@ -35,14 +35,6 @@ Watchlist proof:
 - Saved watchlist entry ID: `6131be81-fc31-4a93-a44a-2d928089f917`
 - Saved trace ID: `7613488f-1835-4b3e-8eb3-1fa450e0a405`
 
-Monitor proof:
-
-- Checked at: `2026-06-10T02:56:45.007Z`
-- Checked thesis records: `4`
-- Alerts created: `0`
-- Expired records: `0`
-- Errors: `[]`
-
 Arize status:
 
 - The Python agent initialized the Arize OpenTelemetry exporter during startup.

@@ -34,6 +34,6 @@ Target length: 3 minutes.
 3. Show the live quote, technical signals, and recent headlines.
 4. Show the Gemini thesis, action plan, risk explanation, and trace ID.
 5. Save the watchlist entry.
-6. Run the monitor and show the checked thesis count.
+6. Show the saved watchlist setup.
 7. Open Arize, search the same trace ID, and show the matching trace.
-8. Close by explaining that the thesis is persisted, observable, and monitored.
+8. Close by explaining that the thesis is persisted, observable, and saved for follow-up.

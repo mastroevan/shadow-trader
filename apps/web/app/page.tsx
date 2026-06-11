@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   ClipboardList,
   FileClock,
-  Gauge,
   History,
   Newspaper,
   RefreshCw,
@@ -18,6 +17,7 @@ import {
   ShieldCheck,
   Sparkles,
   Target,
+  Trash2,
   TrendingUp,
 } from 'lucide-react';
 
@@ -87,6 +87,14 @@ type AnalyzeResponse = {
 type SavedWatchlistEntry = {
   id: string;
   symbol: string;
+  direction: string;
+  suggestedAction: string;
+  confidenceScore: number | null;
+  thesis: string;
+  entryTrigger: string;
+  invalidation: string;
+  watchConditions: string[];
+  traceId?: string;
   createdAt: string;
 };
 
@@ -123,38 +131,6 @@ type ThesisRecord = {
   outcome: ThesisOutcome | null;
 };
 
-type AlertRecord = {
-  id: string;
-  thesisRecordId?: string;
-  symbol: string;
-  type: string;
-  severity: 'LOW' | 'MEDIUM' | 'HIGH';
-  status: 'OPEN' | 'ACKNOWLEDGED';
-  title: string;
-  message: string;
-  createdAt: string;
-};
-
-type DailyBrief = {
-  generatedAt: string;
-  activeCount: number;
-  openAlertCount: number;
-  expiringSoonCount: number;
-  resolvedTodayCount: number;
-  highlights: string[];
-};
-
-type MonitorRunSummary = {
-  checkedAt: string;
-  checked: number;
-  alertsCreated: number;
-  expired: number;
-  errors: Array<{
-    symbol: string;
-    message: string;
-  }>;
-};
-
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const API_KEY = process.env.NEXT_PUBLIC_SHADOW_TRADER_API_KEY;
 const DEMO_TICKERS = ['NVDA', 'AAPL', 'TSLA', 'META', 'AMZN'];
@@ -172,18 +148,36 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [savingWatchlist, setSavingWatchlist] = useState(false);
   const [savedEntry, setSavedEntry] = useState<SavedWatchlistEntry | null>(null);
+  const [watchlistEntries, setWatchlistEntries] = useState<SavedWatchlistEntry[]>([]);
+  const [loadingWatchlist, setLoadingWatchlist] = useState(false);
+  const [deletingWatchlistId, setDeletingWatchlistId] = useState<string | null>(null);
   const [recentTheses, setRecentTheses] = useState<ThesisRecord[]>([]);
-  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
-  const [dailyBrief, setDailyBrief] = useState<DailyBrief | null>(null);
-  const [monitorSummary, setMonitorSummary] = useState<MonitorRunSummary | null>(null);
-  const [runningMonitor, setRunningMonitor] = useState(false);
   const [resolvingOutcome, setResolvingOutcome] = useState<ThesisStatus | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    void loadWatchlist();
     void loadRecentTheses();
-    void loadAutomationDesk();
   }, []);
+
+  async function loadWatchlist() {
+    setLoadingWatchlist(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/watchlist`, {
+        headers: apiHeaders(),
+      });
+
+      if (!response.ok) return;
+
+      const data = (await response.json()) as { entries?: SavedWatchlistEntry[] };
+      setWatchlistEntries(data.entries ?? []);
+    } catch {
+      // The watchlist is useful when available, but analysis should still work without it.
+    } finally {
+      setLoadingWatchlist(false);
+    }
+  }
 
   async function loadRecentTheses() {
     try {
@@ -197,80 +191,6 @@ export default function Home() {
       setRecentTheses((data.records ?? []).slice(0, 5));
     } catch {
       // Thesis history is a trust enhancement, not a blocker for fresh analysis.
-    }
-  }
-
-  async function loadAutomationDesk() {
-    await Promise.all([loadAlerts(), loadDailyBrief()]);
-  }
-
-  async function loadAlerts() {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/alerts`, {
-        headers: apiHeaders(),
-      });
-
-      if (!response.ok) return;
-
-      const data = (await response.json()) as { alerts?: AlertRecord[] };
-      setAlerts(data.alerts ?? []);
-    } catch {
-      // Automation alerts are optional during local setup.
-    }
-  }
-
-  async function loadDailyBrief() {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/daily-brief`, {
-        headers: apiHeaders(),
-      });
-
-      if (!response.ok) return;
-
-      const data = (await response.json()) as { brief?: DailyBrief };
-      setDailyBrief(data.brief ?? null);
-    } catch {
-      // Daily brief is optional during local setup.
-    }
-  }
-
-  async function handleRunMonitor() {
-    setRunningMonitor(true);
-    setError('');
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/automation/monitor`, {
-        method: 'POST',
-        headers: apiHeaders(),
-      });
-      const data = (await response.json()) as { summary?: MonitorRunSummary; message?: string; error?: string };
-
-      if (!response.ok || !data.summary) {
-        throw new Error(data.message ?? data.error ?? 'Could not run thesis monitor.');
-      }
-
-      setMonitorSummary(data.summary);
-      await Promise.all([loadRecentTheses(), loadAutomationDesk()]);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Could not run thesis monitor.';
-      setError(message);
-    } finally {
-      setRunningMonitor(false);
-    }
-  }
-
-  async function handleAcknowledgeAlert(alertId: string) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/alerts/${alertId}/acknowledge`, {
-        method: 'PATCH',
-        headers: apiHeaders(),
-      });
-
-      if (!response.ok) return;
-
-      await loadAutomationDesk();
-    } catch {
-      // Keep the alert visible if acknowledgement fails.
     }
   }
 
@@ -303,7 +223,6 @@ export default function Home() {
 
       setResult(data);
       void loadRecentTheses();
-      void loadAutomationDesk();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong.';
       setError(message === 'Failed to fetch' ? 'Could not reach the analysis API. Make sure the backend is running on port 3001.' : message);
@@ -348,12 +267,47 @@ export default function Home() {
         throw new Error(data.message ?? data.error ?? 'Could not save this watchlist entry.');
       }
 
-      setSavedEntry(data.entry);
+      const entry = data.entry;
+      setSavedEntry(entry);
+      setWatchlistEntries((entries) => [entry, ...entries.filter((currentEntry) => currentEntry.id !== entry.id)]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not save this watchlist entry.';
       setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
     } finally {
       setSavingWatchlist(false);
+    }
+  }
+
+  async function handleDeleteWatchlistEntry(entryId: string) {
+    setDeletingWatchlistId(entryId);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/watchlist/${entryId}`, {
+        method: 'DELETE',
+        headers: apiHeaders(),
+      });
+
+      if (!response.ok) {
+        let message = 'Could not remove this watchlist entry.';
+
+        try {
+          const data = (await response.json()) as { message?: string; error?: string };
+          message = data.message ?? data.error ?? message;
+        } catch {
+          // DELETE normally returns no body on success; keep the default error on parse failure.
+        }
+
+        throw new Error(message);
+      }
+
+      setWatchlistEntries((entries) => entries.filter((entry) => entry.id !== entryId));
+      setSavedEntry((entry) => entry?.id === entryId ? null : entry);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not remove this watchlist entry.';
+      setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
+    } finally {
+      setDeletingWatchlistId(null);
     }
   }
 
@@ -383,7 +337,6 @@ export default function Home() {
 
       setResult((current) => current ? { ...current, thesisRecord: data.record } : current);
       void loadRecentTheses();
-      void loadAutomationDesk();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not update thesis outcome.';
       setError(message);
@@ -477,13 +430,12 @@ export default function Home() {
           </section>
         )}
 
-        <AutomationDesk
-          alerts={alerts}
-          dailyBrief={dailyBrief}
-          monitorSummary={monitorSummary}
-          runningMonitor={runningMonitor}
-          onRunMonitor={handleRunMonitor}
-          onAcknowledgeAlert={handleAcknowledgeAlert}
+        <WatchlistCard
+          entries={watchlistEntries}
+          loading={loadingWatchlist}
+          deletingId={deletingWatchlistId}
+          onRefresh={() => void loadWatchlist()}
+          onDelete={handleDeleteWatchlistEntry}
         />
 
         {result && quote && (
@@ -572,104 +524,118 @@ export default function Home() {
   );
 }
 
-function AutomationDesk({
-  alerts,
-  dailyBrief,
-  monitorSummary,
-  runningMonitor,
-  onRunMonitor,
-  onAcknowledgeAlert,
+function WatchlistCard({
+  entries,
+  loading,
+  deletingId,
+  onRefresh,
+  onDelete,
 }: {
-  alerts: AlertRecord[];
-  dailyBrief: DailyBrief | null;
-  monitorSummary: MonitorRunSummary | null;
-  runningMonitor: boolean;
-  onRunMonitor: () => void;
-  onAcknowledgeAlert: (alertId: string) => void;
+  entries: SavedWatchlistEntry[];
+  loading: boolean;
+  deletingId: string | null;
+  onRefresh: () => void;
+  onDelete: (entryId: string) => void;
 }) {
-  const openAlerts = alerts.filter((alert) => alert.status === 'OPEN').slice(0, 4);
-
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex items-center gap-2">
           <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
-            <Gauge className="h-5 w-5" />
+            <BookmarkPlus className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-sm font-bold uppercase text-zinc-500">Automation Desk</p>
-            <h3 className="text-2xl font-bold">Monitor active theses and review alerts</h3>
+            <p className="text-sm font-bold uppercase text-zinc-500">Watchlist</p>
+            <h3 className="text-2xl font-bold">Saved trade setups</h3>
           </div>
         </div>
 
         <button
           type="button"
-          disabled={runningMonitor}
-          onClick={onRunMonitor}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          disabled={loading}
+          onClick={onRefresh}
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <RefreshCw className={`h-4 w-4 ${runningMonitor ? 'animate-spin' : ''}`} />
-          {runningMonitor ? 'Running...' : 'Run Monitor'}
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
         </button>
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-4">
-        <MiniStat label="Active" value={String(dailyBrief?.activeCount ?? 0)} />
-        <MiniStat label="Open Alerts" value={String(dailyBrief?.openAlertCount ?? openAlerts.length)} />
-        <MiniStat label="Expiring" value={String(dailyBrief?.expiringSoonCount ?? 0)} />
-        <MiniStat label="Resolved Today" value={String(dailyBrief?.resolvedTodayCount ?? 0)} />
-      </div>
-
-      {dailyBrief?.highlights && dailyBrief.highlights.length > 0 && (
-        <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-          <p className="text-xs font-bold uppercase text-zinc-500">Daily Brief</p>
-          <ul className="mt-3 space-y-2">
-            {dailyBrief.highlights.slice(0, 4).map((highlight) => (
-              <li key={highlight} className="text-sm font-semibold leading-6 text-zinc-800">
-                {highlight}
-              </li>
+      <div className="mt-6 space-y-4">
+        {loading && entries.length === 0 ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {[0, 1].map((item) => (
+              <div key={item} className="h-40 animate-pulse rounded-lg border border-zinc-200 bg-zinc-50" />
             ))}
-          </ul>
-        </div>
-      )}
-
-      {monitorSummary && (
-        <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
-          Monitor checked {monitorSummary.checked} active thesis records and created {monitorSummary.alertsCreated} alerts.
-        </p>
-      )}
-
-      <div className="mt-5 grid gap-3">
-        {openAlerts.length > 0 ? (
-          openAlerts.map((alert) => (
-            <div key={alert.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
+          </div>
+        ) : entries.length > 0 ? (
+          entries.map((entry) => (
+            <div key={entry.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${severityClass(alert.severity)}`}>
-                      {alert.severity}
+                    <span className="rounded-full bg-zinc-950 px-3 py-1 text-sm font-bold text-white">
+                      {entry.symbol}
                     </span>
-                    <p className="text-sm font-bold text-zinc-950">{alert.title}</p>
+                    <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${directionClass(entry.direction)}`}>
+                      {entry.direction || 'NEUTRAL'}
+                    </span>
+                    <span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-zinc-600 shadow-sm">
+                      {entry.suggestedAction || 'WATCH'}
+                    </span>
+                    <span className="text-xs font-semibold uppercase text-zinc-500">
+                      {formatDate(entry.createdAt)}
+                    </span>
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-zinc-600">{alert.message}</p>
-                  <p className="mt-2 text-xs font-semibold uppercase text-zinc-500">
-                    {alert.symbol} · {formatDate(alert.createdAt)}
+
+                  <p className="mt-3 line-clamp-3 text-sm font-semibold leading-6 text-zinc-800">
+                    {entry.thesis || 'No thesis summary saved.'}
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => onAcknowledgeAlert(alert.id)}
-                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700"
+                  disabled={deletingId === entry.id}
+                  onClick={() => onDelete(entry.id)}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-red-400 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Acknowledge
+                  <Trash2 className="h-4 w-4" />
+                  {deletingId === entry.id ? 'Removing...' : 'Remove'}
                 </button>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <MiniStat
+                  label="Confidence"
+                  value={entry.confidenceScore === null ? 'N/A' : `${Math.round(entry.confidenceScore * 100)}%`}
+                />
+                <MiniStat label="Trace" value={entry.traceId ? entry.traceId.slice(0, 8) : 'N/A'} />
+                <MiniStat label="Entry ID" value={entry.id.slice(0, 8)} />
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                <PlanBlock label="Entry Trigger" value={entry.entryTrigger || 'Watch for signal confirmation.'} />
+                <PlanBlock label="Invalidation" value={entry.invalidation || 'Reassess if the thesis breaks.'} />
+                <div className="rounded-lg border border-zinc-200 bg-white p-4">
+                  <p className="text-xs font-bold uppercase text-zinc-500">Watch Conditions</p>
+                  {entry.watchConditions.length > 0 ? (
+                    <ul className="mt-3 space-y-2">
+                      {entry.watchConditions.map((condition, index) => (
+                        <li key={`${entry.id}-${condition}-${index}`} className="text-sm font-semibold leading-6 text-zinc-800">
+                          {condition}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-sm text-zinc-500">No watch conditions saved.</p>
+                  )}
+                </div>
               </div>
             </div>
           ))
         ) : (
           <p className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
-            No open automation alerts.
+            No saved watchlist entries yet.
           </p>
         )}
       </div>
@@ -697,7 +663,7 @@ function ActionPlanCard({
           </div>
           <div>
             <p className="text-sm font-bold uppercase text-zinc-500">Agent Action Plan</p>
-            <h3 className="text-2xl font-bold">Turn the thesis into a monitored setup</h3>
+            <h3 className="text-2xl font-bold">Turn the thesis into a saved setup</h3>
           </div>
         </div>
 
@@ -1048,9 +1014,10 @@ function statusClass(status: ThesisStatus) {
   return 'bg-zinc-100 text-zinc-700';
 }
 
-function severityClass(severity: AlertRecord['severity']) {
-  if (severity === 'HIGH') return 'bg-red-50 text-red-700';
-  if (severity === 'MEDIUM') return 'bg-amber-50 text-amber-700';
+function directionClass(direction?: string) {
+  const normalized = direction?.toUpperCase() ?? '';
+  if (normalized.includes('BULL')) return 'bg-emerald-50 text-emerald-700';
+  if (normalized.includes('BEAR')) return 'bg-red-50 text-red-700';
   return 'bg-zinc-100 text-zinc-700';
 }
 
@@ -1073,8 +1040,8 @@ function getTradePlan(thesis: TradingThesis, signals: SignalDetail[]): Required<
     entryTrigger:
       thesis.tradePlan?.entryTrigger ??
       (isBearish
-        ? 'Alert if downside pressure continues and price remains below the main trend signal.'
-        : 'Alert if price confirms the thesis with follow-through above the current trend signal.'),
+        ? 'Watch for continued downside pressure while price remains below the main trend signal.'
+        : 'Watch for price confirmation with follow-through above the current trend signal.'),
     invalidation:
       thesis.tradePlan?.invalidation ??
       (isBearish
