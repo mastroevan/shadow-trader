@@ -14,3 +14,4 @@ gcloud-key.json
 .DS_Store
 apps/api/.DS_Store
 apps/web/tsconfig.tsbuildinfo
+apps/api/google-service-account.json

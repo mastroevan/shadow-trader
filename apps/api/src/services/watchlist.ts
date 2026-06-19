@@ -8,6 +8,7 @@ export type WatchlistEntry = {
   direction: string;
   suggestedAction: string;
   confidenceScore: number | null;
+  startPrice: number | null;
   thesis: string;
   entryTrigger: string;
   invalidation: string;
