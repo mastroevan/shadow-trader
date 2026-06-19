@@ -7,6 +7,7 @@ import {
 import { appendWatchlistRow } from "../services/googleSheets";
 
 const router = Router();
+const SHEETS_DIRECTIONS = new Set(["BEARISH", "BULLISH", "NEUTRAL"]);
 
 router.get("/watchlist", async (_req, res) => {
   const entries = await listWatchlistEntries();
@@ -32,10 +33,7 @@ router.post("/watchlist", async (req, res) => {
       typeof req.body.confidenceScore === "number"
         ? req.body.confidenceScore
         : null,
-    startPrice:
-      typeof req.body.startPrice === "number"
-        ? req.body.startPrice
-        : null,
+    startPrice: parseNullableNumber(req.body.startPrice),
     thesis: String(req.body.thesis ?? ""),
     entryTrigger: String(req.body.entryTrigger ?? "Watch for signal confirmation."),
     invalidation: String(req.body.invalidation ?? "Reassess if the original thesis breaks."),
@@ -50,15 +48,15 @@ router.post("/watchlist", async (req, res) => {
     await appendWatchlistRow({
       dateGenerated: entry.createdAt.slice(0, 10),
       ticker: entry.symbol,
-      thesis: entry.thesis,
+      thesis: normalizeSheetsDirection(entry.direction),
       confidence: entry.confidenceScore ?? "",
       action: entry.suggestedAction,
       startPrice: entry.startPrice ?? "",
       entryTrigger: entry.entryTrigger,
       invalidation: entry.invalidation,
-      horizon: "",
+      horizon: normalizeSheetsHorizon(req.body.timeHorizon),
       traceId: entry.traceId ?? "",
-      status: "Active",
+      status: "Watching",
       notes: entry.watchConditions.join("; "),
     });
   } catch (error) {
@@ -91,5 +89,34 @@ router.delete("/watchlist/:id", async (req, res) => {
 
   return res.status(204).send();
 });
+
+function parseNullableNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function normalizeSheetsDirection(value: unknown): string {
+  const direction = String(value ?? "").trim().toUpperCase();
+
+  return SHEETS_DIRECTIONS.has(direction) ? direction : "NEUTRAL";
+}
+
+function normalizeSheetsHorizon(value: unknown): string {
+  const horizon = String(value ?? "").trim().toUpperCase();
+
+  if (horizon === "SHORT" || horizon === "1D") return "SHORT";
+  if (horizon === "MEDIUM") return "MEDIUM";
+
+  return "1W";
+}
 
 export default router;
