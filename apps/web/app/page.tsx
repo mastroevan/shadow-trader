@@ -163,6 +163,8 @@ type ThesisRecord = {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const API_KEY = process.env.NEXT_PUBLIC_SHADOW_TRADER_API_KEY;
 const DEMO_TICKERS = ['NVDA', 'AAPL', 'TSLA', 'META', 'AMZN'];
+const CARD_CLASS = 'rounded-lg border border-zinc-200/80 bg-white/95 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur';
+const INNER_CARD_CLASS = 'rounded-lg border border-zinc-200 bg-gradient-to-br from-white to-zinc-50 p-4 shadow-sm';
 
 function apiHeaders() {
   return {
@@ -425,15 +427,15 @@ export default function Home() {
   const tradePlan = thesis ? getTradePlan(thesis, featuredSignals) : null;
 
   return (
-    <main className="min-h-screen bg-[#f6f7f9] px-5 py-8 text-zinc-950 md:px-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm md:p-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#ecfdf5_0,#f6f7f9_34%,#f8fafc_100%)] px-5 py-8 text-zinc-950 md:px-8">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+        <section className="rounded-lg border border-zinc-200/80 bg-white/95 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.07)] backdrop-blur md:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-sm font-bold uppercase text-emerald-700">Shadow Trader</p>
-              <h1 className="mt-2 text-4xl font-bold md:text-5xl">Market thesis desk</h1>
-              <p className="mt-3 max-w-2xl text-base text-zinc-600">
-                Live quote, signal, headline, and AI thesis analysis for fast ticker research.
+              <h1 className="mt-2 text-4xl font-bold tracking-normal md:text-5xl">Market thesis desk</h1>
+              <p className="mt-3 max-w-2xl text-base leading-7 text-zinc-600">
+                Analyze a ticker, save the setup, then manage it through the watch list, trades list, and trust ledger.
               </p>
             </div>
 
@@ -486,23 +488,27 @@ export default function Home() {
           </section>
         )}
 
-        <WatchlistCard
-          entries={watchlistEntries}
-          loading={loadingWatchlist}
-          deletingId={deletingWatchlistId}
-          updatingStatusId={updatingWatchlistStatusId}
-          onRefresh={() => void loadWorkflow()}
-          onDelete={handleDeleteWatchlistEntry}
-          onUpdateStatus={handleUpdateWatchlistStatus}
-        />
+        <div className="grid gap-6">
+          <WatchlistCard
+            entries={watchlistEntries}
+            loading={loadingWatchlist}
+            deletingId={deletingWatchlistId}
+            updatingStatusId={updatingWatchlistStatusId}
+            onRefresh={() => void loadWorkflow()}
+            onDelete={handleDeleteWatchlistEntry}
+            onUpdateStatus={handleUpdateWatchlistStatus}
+          />
 
-        <TradeListCard
-          entries={tradeEntries}
-          closingTradeId={closingTradeId}
-          onCloseTrade={handleCloseTrade}
-        />
+          <div className="grid gap-6 xl:grid-cols-2">
+            <TradeListCard
+              entries={tradeEntries}
+              closingTradeId={closingTradeId}
+              onCloseTrade={handleCloseTrade}
+            />
 
-        <DailyReviewSummary entries={ledgerEntries} />
+            <TrustLedgerCard entries={ledgerEntries} />
+          </div>
+        </div>
       </div>
 
       {result && (
@@ -718,15 +724,20 @@ function WatchlistCard({
   onUpdateStatus: (entryId: string, status: WatchlistStatus) => void;
 }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+    <section className={CARD_CLASS}>
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex items-center gap-2">
-          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
+          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700 shadow-sm">
             <BookmarkPlus className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-sm font-bold uppercase text-zinc-500">Watchlist</p>
-            <h3 className="text-2xl font-bold">Saved trade setups</h3>
+            <p className="text-sm font-bold uppercase text-zinc-500">Watch List</p>
+            <div className="mt-1 flex flex-wrap items-center gap-3">
+              <h3 className="text-2xl font-bold">Saved trade setups</h3>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                {entries.length} active
+              </span>
+            </div>
           </div>
         </div>
 
@@ -750,7 +761,7 @@ function WatchlistCard({
           </div>
         ) : entries.length > 0 ? (
           entries.map((entry) => (
-            <div key={entry.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+            <div key={entry.id} className={INNER_CARD_CLASS}>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -817,9 +828,7 @@ function WatchlistCard({
             </div>
           ))
         ) : (
-          <p className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
-            No saved watchlist entries yet.
-          </p>
+          <EmptyState title="No watch list setups yet" body="Run an analysis and add the best setups here before they become trades." />
         )}
       </div>
     </section>
@@ -836,21 +845,26 @@ function TradeListCard({
   onCloseTrade: (entryId: string, outcome: 'Win' | 'Loss') => void;
 }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+    <section className={CARD_CLASS}>
       <div className="flex items-center gap-2">
-        <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
+        <div className="rounded-lg bg-blue-50 p-2 text-blue-700 shadow-sm">
           <TrendingUp className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm font-bold uppercase text-zinc-500">Trades</p>
-          <h3 className="text-2xl font-bold">Triggered active trades</h3>
+          <p className="text-sm font-bold uppercase text-zinc-500">Trades List</p>
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <h3 className="text-2xl font-bold">Triggered active trades</h3>
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+              {entries.length} open
+            </span>
+          </div>
         </div>
       </div>
 
       <div className="mt-6 space-y-4">
         {entries.length > 0 ? (
           entries.map((entry) => (
-            <div key={entry.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+            <div key={entry.id} className={INNER_CARD_CLASS}>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-zinc-950 px-3 py-1 text-sm font-bold text-white">{entry.symbol}</span>
@@ -893,32 +907,35 @@ function TradeListCard({
             </div>
           ))
         ) : (
-          <p className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
-            No triggered trades yet.
-          </p>
+          <EmptyState title="No active trades" body="Triggered watch list setups will appear here with entry and P/L details." />
         )}
       </div>
     </section>
   );
 }
 
-function DailyReviewSummary({ entries }: { entries: LedgerEntry[] }) {
+function TrustLedgerCard({ entries }: { entries: LedgerEntry[] }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+    <section className={CARD_CLASS}>
       <div className="flex items-center gap-2">
-        <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
+        <div className="rounded-lg bg-violet-50 p-2 text-violet-700 shadow-sm">
           <ShieldCheck className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm font-bold uppercase text-zinc-500">Daily Review</p>
-          <h3 className="text-2xl font-bold">Finalized setup summary</h3>
+          <p className="text-sm font-bold uppercase text-zinc-500">Trust Ledger</p>
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <h3 className="text-2xl font-bold">Closed setup record</h3>
+            <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
+              {entries.length} finalized
+            </span>
+          </div>
         </div>
       </div>
 
       <div className="mt-6 space-y-3">
         {entries.length > 0 ? (
           entries.map((entry) => (
-            <div key={entry.ledgerId} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+            <div key={entry.ledgerId} className={INNER_CARD_CLASS}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-zinc-950 px-3 py-1 text-sm font-bold text-white">{entry.symbol}</span>
@@ -949,12 +966,19 @@ function DailyReviewSummary({ entries }: { entries: LedgerEntry[] }) {
             </div>
           ))
         ) : (
-          <p className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
-            No finalized ledger records yet.
-          </p>
+          <EmptyState title="No trust ledger records" body="Invalidated, expired, and closed setups will land here for review." />
         )}
       </div>
     </section>
+  );
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50/80 p-6">
+      <p className="text-sm font-bold text-zinc-900">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-zinc-500">{body}</p>
+    </div>
   );
 }
 
