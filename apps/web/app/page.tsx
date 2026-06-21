@@ -175,6 +175,7 @@ export default function Home() {
   const [symbol, setSymbol] = useState('NVDA');
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [analysisModalOpen, setAnalysisModalOpen] = useState(false);
   const [savingWatchlist, setSavingWatchlist] = useState(false);
   const [savedEntry, setSavedEntry] = useState<SavedWatchlistEntry | null>(null);
   const [watchlistEntries, setWatchlistEntries] = useState<SavedWatchlistEntry[]>([]);
@@ -184,7 +185,6 @@ export default function Home() {
   const [deletingWatchlistId, setDeletingWatchlistId] = useState<string | null>(null);
   const [updatingWatchlistStatusId, setUpdatingWatchlistStatusId] = useState<string | null>(null);
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
-  const [resolvingOutcome, setResolvingOutcome] = useState<ThesisStatus | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -235,6 +235,7 @@ export default function Home() {
     setSavedEntry(null);
     setError('');
     setResult(null);
+    setAnalysisModalOpen(false);
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/analyze`, {
@@ -250,6 +251,7 @@ export default function Home() {
       }
 
       setResult(data);
+      setAnalysisModalOpen(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong.';
       setError(message === 'Failed to fetch' ? 'Could not reach the analysis API. Make sure the backend is running on port 3001.' : message);
@@ -299,6 +301,7 @@ export default function Home() {
       const entry = data.entry;
       setSavedEntry(entry);
       setWatchlistEntries((entries) => [entry, ...entries.filter((currentEntry) => currentEntry.symbol !== entry.symbol)]);
+      setAnalysisModalOpen(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not save this watchlist entry.';
       setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
@@ -404,42 +407,8 @@ export default function Home() {
     }
   }
 
-  async function handleResolveThesis(status: ThesisStatus) {
-    const thesisRecordId = result?.thesisRecord?.id ?? result?.thesisRecordId;
-    if (!thesisRecordId || !quote?.price) return;
-
-    setResolvingOutcome(status);
-    setError('');
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/theses/${thesisRecordId}/outcome`, {
-        method: 'PATCH',
-        headers: apiHeaders(),
-        body: JSON.stringify({
-          status,
-          finalPrice: quote.price,
-          notes: `${status.toLowerCase()} from the analysis workspace.`,
-        }),
-      });
-
-      const data = (await response.json()) as { record?: ThesisRecord; message?: string; error?: string };
-
-      if (!response.ok || !data.record) {
-        throw new Error(data.message ?? data.error ?? 'Could not update thesis outcome.');
-      }
-
-      setResult((current) => current ? { ...current, thesisRecord: data.record } : current);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Could not update thesis outcome.';
-      setError(message);
-    } finally {
-      setResolvingOutcome(null);
-    }
-  }
-
   const thesis = result?.thesis;
   const quote = result?.quote;
-  const thesisRecord = result?.thesisRecord ?? null;
   const symbolLabel = thesis?.symbol ?? quote?.symbol ?? result?.meta?.symbol ?? symbol.toUpperCase();
   const priceChangePct = useMemo(() => {
     if (!quote?.price || !quote.previousClose) return null;
@@ -448,8 +417,9 @@ export default function Home() {
   const isPositive = (priceChangePct ?? 0) >= 0;
   const confidence = typeof thesis?.confidenceScore === 'number' ? thesis.confidenceScore : null;
   const confidencePct = confidence === null ? null : Math.round(confidence * 100);
+  const allSignals = result?.signalDetails ?? [];
   const topNews = result?.news?.filter((item) => item.headline).slice(0, 5) ?? [];
-  const featuredSignals = (result?.signalDetails ?? []).filter((signal) =>
+  const featuredSignals = allSignals.filter((signal) =>
     ['PRICE_CHANGE', 'INTRADAY_RANGE', 'NEWS_SENTIMENT', 'SMA_TREND'].includes(signal.type ?? '')
   );
   const tradePlan = thesis ? getTradePlan(thesis, featuredSignals) : null;
@@ -516,12 +486,6 @@ export default function Home() {
           </section>
         )}
 
-        {result?.agentStatus === 'RULE_BASED_FALLBACK' && (
-          <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold leading-6 text-amber-900 shadow-sm">
-            The AI agent did not respond before the timeout, so this analysis used a rule-based fallback. Re-run analysis when the agent is responsive for a full Gemini thesis.
-          </section>
-        )}
-
         <WatchlistCard
           entries={watchlistEntries}
           loading={loadingWatchlist}
@@ -538,85 +502,201 @@ export default function Home() {
           onCloseTrade={handleCloseTrade}
         />
 
-        <TrustLedgerList entries={ledgerEntries} />
-
-        {result && quote && (
-          <section className="grid gap-6 lg:grid-cols-[0.95fr_1.25fr]">
-            <QuoteCard symbol={symbolLabel} quote={quote} priceChangePct={priceChangePct} isPositive={isPositive} />
-
-            {thesis && <ThesisCard thesis={thesis} symbol={symbolLabel} confidencePct={confidencePct} />}
-          </section>
-        )}
-
-        {result && (
-          <section className="grid gap-6 lg:grid-cols-2">
-            <Panel title="Signals" icon={<Activity className="h-5 w-5" />}>
-              <div className="grid gap-3">
-                {featuredSignals.length > 0 ? (
-                  featuredSignals.map((signal) => <SignalRow key={`${signal.type}-${signal.label}`} signal={signal} />)
-                ) : (
-                  <p className="text-sm text-zinc-500">No signal details returned.</p>
-                )}
-              </div>
-            </Panel>
-
-            <Panel title="News Headlines" icon={<Newspaper className="h-5 w-5" />}>
-              <div className="space-y-3">
-                {topNews.length > 0 ? (
-                  topNews.map((item, index) => (
-                    <a
-                      key={`${item.headline}-${index}`}
-                      href={item.url || undefined}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block rounded-lg border border-zinc-200 bg-zinc-50 p-4 transition hover:border-emerald-300 hover:bg-white"
-                    >
-                      <p className="text-sm font-bold leading-5 text-zinc-950">{item.headline}</p>
-                      <p className="mt-2 text-xs font-semibold uppercase text-zinc-500">
-                        {item.source || 'Unknown source'}
-                      </p>
-                    </a>
-                  ))
-                ) : (
-                  <p className="text-sm text-zinc-500">No recent headlines returned.</p>
-                )}
-              </div>
-            </Panel>
-          </section>
-        )}
-
-        {thesisRecord && (
-          <TrustLedgerCard
-            record={thesisRecord}
-            resolvingOutcome={resolvingOutcome}
-            onResolve={handleResolveThesis}
-          />
-        )}
-
-        {thesis && tradePlan && (
-          <ActionPlanCard
-            plan={tradePlan}
-            saving={savingWatchlist}
-            savedEntry={savedEntry}
-            onAddToWatchlist={handleAddToWatchlist}
-          />
-        )}
-
-        {thesis && (
-          <section className="grid gap-6 md:grid-cols-2">
-            <FactorList title="Bullish Factors" factors={thesis.bullishFactors} tone="bullish" />
-            <FactorList title="Bearish Factors" factors={thesis.bearishFactors} tone="bearish" />
-          </section>
-        )}
-
-        {thesis?.riskExplanation && (
-          <section className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-950 shadow-sm">
-            <p className="text-sm font-bold uppercase">Risk Explanation</p>
-            <p className="mt-3 leading-7">{thesis.riskExplanation}</p>
-          </section>
-        )}
+        <DailyReviewSummary entries={ledgerEntries} />
       </div>
+
+      {result && (
+        <AnalysisDetailsModal
+          open={analysisModalOpen}
+          result={result}
+          symbol={symbolLabel}
+          quote={quote}
+          thesis={thesis}
+          confidencePct={confidencePct}
+          priceChangePct={priceChangePct}
+          isPositive={isPositive}
+          signals={allSignals}
+          news={topNews}
+          plan={tradePlan}
+          saving={savingWatchlist}
+          savedEntry={savedEntry}
+          onAddToWatchlist={handleAddToWatchlist}
+          onClose={() => setAnalysisModalOpen(false)}
+        />
+      )}
     </main>
+  );
+}
+
+function AnalysisDetailsModal({
+  open,
+  result,
+  symbol,
+  quote,
+  thesis,
+  confidencePct,
+  priceChangePct,
+  isPositive,
+  signals,
+  news,
+  plan,
+  saving,
+  savedEntry,
+  onAddToWatchlist,
+  onClose,
+}: {
+  open: boolean;
+  result: AnalyzeResponse;
+  symbol: string;
+  quote?: Quote;
+  thesis?: TradingThesis;
+  confidencePct: number | null;
+  priceChangePct: number | null;
+  isPositive: boolean;
+  signals: SignalDetail[];
+  news: NewsItem[];
+  plan: Required<TradePlan> | null;
+  saving: boolean;
+  savedEntry: SavedWatchlistEntry | null;
+  onAddToWatchlist: () => void;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/60 p-4">
+      <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-zinc-200 bg-[#f6f7f9] shadow-2xl">
+        <div className="flex flex-col gap-4 border-b border-zinc-200 bg-white p-5 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-sm font-bold uppercase text-emerald-700">Analysis Details</p>
+            <h2 className="mt-1 text-3xl font-bold">{symbol}</h2>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-bold text-zinc-700 transition hover:border-zinc-500"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="grid gap-5">
+            {result.agentStatus === 'RULE_BASED_FALLBACK' && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold leading-6 text-amber-900">
+                The AI agent did not respond before the timeout, so this analysis used a rule-based fallback. Re-run analysis when the agent is responsive for a full Gemini thesis.
+              </div>
+            )}
+
+            <div className="grid gap-5 lg:grid-cols-[0.95fr_1.25fr]">
+              {quote ? (
+                <QuoteCard symbol={symbol} quote={quote} priceChangePct={priceChangePct} isPositive={isPositive} />
+              ) : (
+                <Panel title="Quote" icon={<BadgeDollarSign className="h-5 w-5" />}>
+                  <p className="text-sm text-zinc-500">No quote data returned.</p>
+                </Panel>
+              )}
+
+              {thesis ? (
+                <ThesisCard thesis={thesis} symbol={symbol} confidencePct={confidencePct} />
+              ) : (
+                <Panel title="Thesis" icon={<ClipboardList className="h-5 w-5" />}>
+                  <p className="text-sm text-zinc-500">No thesis returned.</p>
+                </Panel>
+              )}
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <Panel title="Signals" icon={<Activity className="h-5 w-5" />}>
+                <div className="grid gap-3">
+                  {signals.length > 0 ? (
+                    signals.map((signal, index) => <SignalRow key={`${signal.type}-${signal.label}-${index}`} signal={signal} />)
+                  ) : (
+                    <p className="text-sm text-zinc-500">No signal details returned.</p>
+                  )}
+                </div>
+              </Panel>
+
+              <Panel title="News Headlines" icon={<Newspaper className="h-5 w-5" />}>
+                <div className="space-y-3">
+                  {news.length > 0 ? (
+                    news.map((item, index) => (
+                      <a
+                        key={`${item.headline}-${index}`}
+                        href={item.url || undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block rounded-lg border border-zinc-200 bg-zinc-50 p-4 transition hover:border-emerald-300 hover:bg-white"
+                      >
+                        <p className="text-sm font-bold leading-5 text-zinc-950">{item.headline}</p>
+                        <p className="mt-2 text-xs font-semibold uppercase text-zinc-500">
+                          {item.source || 'Unknown source'}
+                        </p>
+                      </a>
+                    ))
+                  ) : (
+                    <p className="text-sm text-zinc-500">No recent headlines returned.</p>
+                  )}
+                </div>
+              </Panel>
+            </div>
+
+            {thesis && (
+              <div className="grid gap-5 md:grid-cols-2">
+                <FactorList title="Bullish Factors" factors={thesis.bullishFactors} tone="bullish" />
+                <FactorList title="Bearish Factors" factors={thesis.bearishFactors} tone="bearish" />
+              </div>
+            )}
+
+            <Panel title="Agent Action Plan" icon={<ClipboardList className="h-5 w-5" />}>
+              {plan ? (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <PlanBlock label="Entry Trigger" value={plan.entryTrigger} />
+                  <PlanBlock label="Invalidation" value={plan.invalidation} />
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+                    <p className="text-xs font-bold uppercase text-zinc-500">Watch Conditions</p>
+                    <ul className="mt-3 space-y-2">
+                      {plan.watchConditions.map((condition, index) => (
+                        <li key={`${condition}-${index}`} className="text-sm font-semibold leading-6 text-zinc-800">
+                          {condition}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-500">No action plan returned.</p>
+              )}
+            </Panel>
+
+            <section className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-950 shadow-sm">
+              <p className="text-sm font-bold uppercase">Risk Explanation</p>
+              <p className="mt-3 leading-7">{thesis?.riskExplanation || 'No risk explanation returned.'}</p>
+            </section>
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-zinc-200 bg-white p-5 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-bold text-zinc-700 transition hover:border-zinc-500"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            disabled={saving || Boolean(savedEntry) || !thesis}
+            onClick={onAddToWatchlist}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          >
+            {savedEntry ? <CheckCircle2 className="h-4 w-4" /> : <BookmarkPlus className="h-4 w-4" />}
+            {savedEntry ? 'Added to Watchlist' : saving ? 'Adding...' : 'Add to Watchlist'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -746,65 +826,6 @@ function WatchlistCard({
   );
 }
 
-function ActionPlanCard({
-  plan,
-  saving,
-  savedEntry,
-  onAddToWatchlist,
-}: {
-  plan: Required<TradePlan>;
-  saving: boolean;
-  savedEntry: SavedWatchlistEntry | null;
-  onAddToWatchlist: () => void;
-}) {
-  return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="flex items-center gap-2">
-          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
-            <ClipboardList className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-sm font-bold uppercase text-zinc-500">Agent Action Plan</p>
-            <h3 className="text-2xl font-bold">Turn the thesis into a saved setup</h3>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          disabled={saving || Boolean(savedEntry)}
-          onClick={onAddToWatchlist}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-        >
-          {savedEntry ? <CheckCircle2 className="h-4 w-4" /> : <BookmarkPlus className="h-4 w-4" />}
-          {savedEntry ? 'Added to Watchlist' : saving ? 'Adding...' : 'Add to Watchlist'}
-        </button>
-      </div>
-
-      <div className="mt-6 grid gap-4 md:grid-cols-3">
-        <PlanBlock label="Entry Trigger" value={plan.entryTrigger} />
-        <PlanBlock label="Invalidation" value={plan.invalidation} />
-        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-          <p className="text-xs font-bold uppercase text-zinc-500">Watch Conditions</p>
-          <ul className="mt-3 space-y-2">
-            {plan.watchConditions.map((condition, index) => (
-              <li key={`${condition}-${index}`} className="text-sm font-semibold leading-6 text-zinc-800">
-                {condition}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {savedEntry && (
-        <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
-          Saved watchlist entry {savedEntry.id.slice(0, 8)} for {savedEntry.symbol}.
-        </p>
-      )}
-    </section>
-  );
-}
-
 function TradeListCard({
   entries,
   closingTradeId,
@@ -821,7 +842,7 @@ function TradeListCard({
           <TrendingUp className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm font-bold uppercase text-zinc-500">Trade List</p>
+          <p className="text-sm font-bold uppercase text-zinc-500">Trades</p>
           <h3 className="text-2xl font-bold">Triggered active trades</h3>
         </div>
       </div>
@@ -881,7 +902,7 @@ function TradeListCard({
   );
 }
 
-function TrustLedgerList({ entries }: { entries: LedgerEntry[] }) {
+function DailyReviewSummary({ entries }: { entries: LedgerEntry[] }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
       <div className="flex items-center gap-2">
@@ -889,8 +910,8 @@ function TrustLedgerList({ entries }: { entries: LedgerEntry[] }) {
           <ShieldCheck className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm font-bold uppercase text-zinc-500">Trust Ledger</p>
-          <h3 className="text-2xl font-bold">Finalized setup history</h3>
+          <p className="text-sm font-bold uppercase text-zinc-500">Daily Review</p>
+          <h3 className="text-2xl font-bold">Finalized setup summary</h3>
         </div>
       </div>
 
@@ -932,82 +953,6 @@ function TrustLedgerList({ entries }: { entries: LedgerEntry[] }) {
             No finalized ledger records yet.
           </p>
         )}
-      </div>
-    </section>
-  );
-}
-
-function TrustLedgerCard({
-  record,
-  resolvingOutcome,
-  onResolve,
-}: {
-  record: ThesisRecord;
-  resolvingOutcome: ThesisStatus | null;
-  onResolve: (status: ThesisStatus) => void;
-}) {
-  const evidence = record.evidence;
-  const evidenceStats = [
-    { label: 'Signals', value: String(evidence?.signals?.length ?? evidence?.signalDetails?.length ?? 0) },
-    { label: 'Headlines', value: String(evidence?.news?.length ?? 0) },
-    { label: 'SMA', value: evidence?.technicals?.sma20 ? formatCurrency(evidence.technicals.sma20) : 'N/A' },
-  ];
-  const isClosed = record.status !== 'ACTIVE';
-  const outcomeStatuses: ThesisStatus[] = ['TRIGGERED', 'INVALIDATED', 'EXPIRED'];
-
-  return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="flex items-center gap-2">
-          <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
-            <ShieldCheck className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-sm font-bold uppercase text-zinc-500">Trust Ledger</p>
-            <h3 className="text-2xl font-bold">Evidence-backed thesis record</h3>
-          </div>
-        </div>
-
-        <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusClass(record.status)}`}>
-          {record.status}
-        </span>
-      </div>
-
-      <div className="mt-6 grid gap-4 md:grid-cols-4">
-        <MiniStat label="Record" value={record.id.slice(0, 8)} />
-        <MiniStat label="Generated" value={formatDate(record.generatedAt)} />
-        <MiniStat label="Expires" value={formatDate(record.expiresAt)} />
-        <MiniStat label="Start Price" value={formatCurrency(record.initialPrice ?? undefined)} />
-      </div>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        {evidenceStats.map((item) => (
-          <div key={item.label} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-            <p className="text-xs font-bold uppercase text-zinc-500">{item.label}</p>
-            <p className="mt-2 text-lg font-bold text-zinc-950">{item.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {record.outcome && (
-        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">
-          Outcome marked {record.outcome.status.toLowerCase()} at {formatDate(record.outcome.resolvedAt)}
-          {record.outcome.finalPrice ? ` near ${formatCurrency(record.outcome.finalPrice)}.` : '.'}
-        </div>
-      )}
-
-      <div className="mt-5 flex flex-wrap gap-2">
-        {outcomeStatuses.map((status) => (
-          <button
-            key={status}
-            type="button"
-            disabled={Boolean(resolvingOutcome) || isClosed}
-            onClick={() => onResolve(status)}
-            className="inline-flex min-h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {resolvingOutcome === status ? 'Saving...' : `Mark ${status.toLowerCase()}`}
-          </button>
-        ))}
       </div>
     </section>
   );
@@ -1217,13 +1162,6 @@ function formatDate(value?: string) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(value));
-}
-
-function statusClass(status: ThesisStatus) {
-  if (status === 'ACTIVE') return 'bg-emerald-50 text-emerald-700';
-  if (status === 'INVALIDATED') return 'bg-red-50 text-red-700';
-  if (status === 'EXPIRED') return 'bg-amber-50 text-amber-700';
-  return 'bg-zinc-100 text-zinc-700';
 }
 
 function watchlistStatusClass(status?: WatchlistStatus) {

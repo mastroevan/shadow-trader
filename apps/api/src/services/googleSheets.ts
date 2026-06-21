@@ -2,9 +2,14 @@ import { google } from "googleapis";
 import type { LedgerEntry, TradeEntry, WatchlistEntry } from "./watchlist";
 
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-const DEFAULT_WATCHLIST_SHEET = "Active Watchlist";
-const DEFAULT_TRADE_LIST_SHEET = "Trade List";
-const DEFAULT_TRUST_LEDGER_SHEET = "Trust Ledger";
+const DEFAULT_WATCHLIST_SHEET = "Watchlist";
+const DEFAULT_TRADE_LIST_SHEET = "Trades";
+const DEFAULT_TRUST_LEDGER_SHEET = "Daily Review";
+const REQUIRED_WORKFLOW_SHEETS = [
+  DEFAULT_WATCHLIST_SHEET,
+  DEFAULT_TRADE_LIST_SHEET,
+  DEFAULT_TRUST_LEDGER_SHEET,
+] as const;
 let appendQueue = Promise.resolve();
 
 export type WatchlistSheetRow = {
@@ -66,7 +71,7 @@ export async function upsertWatchlistRow(row: WatchlistSheetRow) {
   const quotedSheetName = quoteSheetName(sheetName);
 
   const nextAppend = appendQueue.then(async () => {
-    await ensureWorkflowSheets(sheets, spreadsheetId, [
+    await verifyWorkflowSheets(sheets, spreadsheetId, [
       sheetName,
       tradeListSheetName,
       trustLedgerSheetName,
@@ -136,7 +141,7 @@ export async function moveWatchlistRowToTradeList(entry: TradeEntry) {
   const activeSheetName = quoteSheetName(sheetName);
   const tradeSheetName = quoteSheetName(tradeListSheetName);
 
-  await ensureWorkflowSheets(sheets, spreadsheetId, [sheetName, tradeListSheetName, trustLedgerSheetName]);
+  await verifyWorkflowSheets(sheets, spreadsheetId, [sheetName, tradeListSheetName, trustLedgerSheetName]);
   await appendTableRow(sheets, {
     spreadsheetId,
     quotedSheetName: tradeSheetName,
@@ -152,7 +157,7 @@ export async function moveWatchlistRowToLedger(entry: LedgerEntry) {
   const activeSheetName = quoteSheetName(sheetName);
   const ledgerSheetName = quoteSheetName(trustLedgerSheetName);
 
-  await ensureWorkflowSheets(sheets, spreadsheetId, [sheetName, tradeListSheetName, trustLedgerSheetName]);
+  await verifyWorkflowSheets(sheets, spreadsheetId, [sheetName, tradeListSheetName, trustLedgerSheetName]);
   await appendTableRow(sheets, {
     spreadsheetId,
     quotedSheetName: ledgerSheetName,
@@ -166,7 +171,7 @@ export async function appendClosedTradeToLedger(entry: LedgerEntry) {
   const { spreadsheetId, keyFile, sheetName, tradeListSheetName, trustLedgerSheetName } = getSheetsConfig();
   const sheets = createSheetsClient(keyFile);
 
-  await ensureWorkflowSheets(sheets, spreadsheetId, [sheetName, tradeListSheetName, trustLedgerSheetName]);
+  await verifyWorkflowSheets(sheets, spreadsheetId, [sheetName, tradeListSheetName, trustLedgerSheetName]);
   await appendTableRow(sheets, {
     spreadsheetId,
     quotedSheetName: quoteSheetName(trustLedgerSheetName),
@@ -301,7 +306,7 @@ async function clearWatchlistRow(
   });
 }
 
-async function ensureWorkflowSheets(
+async function verifyWorkflowSheets(
   sheets: SheetsClient,
   spreadsheetId: string,
   sheetNames: string[]
@@ -319,16 +324,7 @@ async function ensureWorkflowSheets(
 
   if (missingSheetNames.length === 0) return;
 
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: missingSheetNames.map((title) => ({
-        addSheet: {
-          properties: { title },
-        },
-      })),
-    },
-  });
+  throw new Error(`Missing required Google Sheets tab(s): ${missingSheetNames.join(", ")}`);
 }
 
 async function findWatchlistSheetRow(
@@ -376,15 +372,21 @@ function createSheetsClient(keyFile: string): SheetsClient {
 function getSheetsConfig() {
   const spreadsheetId = process.env.GOOGLE_SHEETS_ID?.trim();
   const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_PATH?.trim();
-  const sheetName =
-    process.env.GOOGLE_SHEETS_WATCHLIST_SHEET?.trim() ||
-    DEFAULT_WATCHLIST_SHEET;
-  const tradeListSheetName =
-    process.env.GOOGLE_SHEETS_TRADE_LIST_SHEET?.trim() ||
-    DEFAULT_TRADE_LIST_SHEET;
-  const trustLedgerSheetName =
-    process.env.GOOGLE_SHEETS_TRUST_LEDGER_SHEET?.trim() ||
-    DEFAULT_TRUST_LEDGER_SHEET;
+  const sheetName = getRequiredSheetName(
+    process.env.GOOGLE_SHEETS_WATCHLIST_SHEET,
+    DEFAULT_WATCHLIST_SHEET,
+    "GOOGLE_SHEETS_WATCHLIST_SHEET"
+  );
+  const tradeListSheetName = getRequiredSheetName(
+    process.env.GOOGLE_SHEETS_TRADE_LIST_SHEET,
+    DEFAULT_TRADE_LIST_SHEET,
+    "GOOGLE_SHEETS_TRADE_LIST_SHEET"
+  );
+  const trustLedgerSheetName = getRequiredSheetName(
+    process.env.GOOGLE_SHEETS_TRUST_LEDGER_SHEET,
+    DEFAULT_TRUST_LEDGER_SHEET,
+    "GOOGLE_SHEETS_TRUST_LEDGER_SHEET"
+  );
 
   if (!spreadsheetId) {
     throw new Error("Missing GOOGLE_SHEETS_ID");
@@ -395,6 +397,18 @@ function getSheetsConfig() {
   }
 
   return { spreadsheetId, keyFile, sheetName, tradeListSheetName, trustLedgerSheetName };
+}
+
+function getRequiredSheetName(value: string | undefined, requiredSheetName: string, envName: string) {
+  const sheetName = value?.trim() || requiredSheetName;
+
+  if (sheetName !== requiredSheetName) {
+    throw new Error(
+      `${envName} must be "${requiredSheetName}". Shadow Trader only writes to ${REQUIRED_WORKFLOW_SHEETS.join(", ")}.`
+    );
+  }
+
+  return sheetName;
 }
 
 function quoteSheetName(sheetName: string) {

@@ -1,6 +1,6 @@
 # Deployment
 
-This repo is ready for a three-service hosted demo on Render:
+This repo can run as a three-service personal deployment on Render:
 
 - `shadow-trader-agent`: Python FastAPI ADK agent, exported from `apps/agent`.
 - `shadow-trader-api`: Node/Express API, exported from `apps/api`.
@@ -33,12 +33,12 @@ GOOGLE_CLOUD_PROJECT=<project>
 GOOGLE_CLOUD_LOCATION=<region>
 ```
 
-## Hosted Demo URL
+## Hosted URL
 
-Use the deployed web URL in Devpost:
+Default deployed web URL:
 
 ```text
 https://shadow-trader-web.onrender.com
 ```
 
-If the Render service names are changed, update `render.yaml`, `README.md`, and Devpost with the actual web URL.
+If the Render service names are changed, update `render.yaml` and `README.md` with the actual web URL.

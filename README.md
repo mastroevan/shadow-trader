@@ -1,12 +1,12 @@
 # Shadow Trader
 
-Shadow Trader is an AI market research agent for hackathon judges to test quickly: enter a ticker, and the agent gathers live quote data, recent headlines, technical signals, and observability metadata, then turns that evidence into a directional thesis and a watchlist action plan.
+Shadow Trader is a personal AI market research project: enter a ticker, and the agent gathers live quote data, recent headlines, technical signals, and observability metadata, then turns that evidence into a directional thesis and a watchlist action plan.
 
-Hackathon track: **Financial Services**
+Focus area: **Financial Services**
 
-Partner track: **Arize**
+Observability: **Arize**
 
-Partner superpower: Arize/OpenTelemetry traces make each Gemini agent run inspectable, debuggable, and judge-friendly. The trace id is returned in the UI and can be used to inspect the agent run in Arize.
+Arize/OpenTelemetry traces make each Gemini agent run inspectable and debuggable. The trace id is returned in the UI and can be used to inspect the agent run in Arize.
 
 ## What It Does
 
@@ -36,7 +36,7 @@ flowchart LR
 
 1. Open the app.
 2. Click `NVDA` or another demo ticker.
-3. Show the quote card, signal cards, headlines, and AI thesis.
+3. Review the analysis details modal with quote data, signals, headlines, and AI thesis.
 4. Point out the trace id and Arize observability hook.
 5. Click `Add to Watchlist`.
 6. Explain that the agent moved from analysis into a saved watchlist setup.
@@ -111,15 +111,13 @@ The script runs `NVDA`, requires a real Gemini agent response, confirms Finnhub 
 
 Latest local proof summary: [docs/proof/phase-9-10-live-proof.md](docs/proof/phase-9-10-live-proof.md)
 
-## Submission Notes
+## Project Notes
 
 - Hosted project URL: `https://shadow-trader-web.onrender.com`
-- Public repository URL: add the GitHub URL in Devpost after publishing.
 - License: included in this repository.
-- Demo video target: about 3 minutes.
-- Track selection: Arize partner bucket, Financial Services use case.
-- Devpost checklist: [docs/devpost-checklist.md](docs/devpost-checklist.md)
+- Personal walkthrough target: about 3 minutes.
+- Primary use case: Financial Services market research workflow.
 
-## Arize / Agent Builder Qualification
+## Arize / Agent Builder
 
-For the hackathon submission, connect the same Arize project to the Arize MCP server in Google Cloud Agent Builder. Use the trace id shown in Shadow Trader to inspect agent runs, compare thesis quality, and debug failures. The app already sends ADK traces to Arize through OpenTelemetry when `ARIZE_API_KEY` and `ARIZE_SPACE_KEY` are configured.
+Connect the same Arize project to the Arize MCP server in Google Cloud Agent Builder to inspect agent runs, compare thesis quality, and debug failures. The app already sends ADK traces to Arize through OpenTelemetry when `ARIZE_API_KEY` and `ARIZE_SPACE_KEY` are configured.
