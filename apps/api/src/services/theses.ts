@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-export type ThesisStatus = "ACTIVE" | "TRIGGERED" | "INVALIDATED" | "EXPIRED" | "RESOLVED";
+export type ThesisStatus = "ACTIVE" | "TRIGGERED" | "INVALIDATED" | "EXPIRED";
 
 export type ThesisEvidence = {
   quote: unknown;

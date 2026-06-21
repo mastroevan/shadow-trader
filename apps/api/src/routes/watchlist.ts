@@ -1,11 +1,22 @@
 import { Router } from "express";
 import {
-  createWatchlistEntry,
+  closeTradeEntry,
   deleteWatchlistEntry,
+  type LedgerEntry,
+  listLedgerEntries,
+  listTradeEntries,
   listWatchlistEntries,
-  updateWatchlistEntryStatus,
+  moveWatchlistEntry,
+  rollbackWatchlistMove,
+  type TradeEntry,
+  upsertWatchlistEntry,
 } from "../services/watchlist";
-import { appendWatchlistRow, updateWatchlistRowStatus } from "../services/googleSheets";
+import {
+  appendClosedTradeToLedger,
+  moveWatchlistRowToLedger,
+  moveWatchlistRowToTradeList,
+  upsertWatchlistRow,
+} from "../services/googleSheets";
 import {
   normalizeSheetsDirection,
   normalizeSheetsHorizon,
@@ -22,6 +33,18 @@ router.get("/watchlist", async (_req, res) => {
   return res.json({ entries });
 });
 
+router.get("/trade-list", async (_req, res) => {
+  const entries = await listTradeEntries();
+
+  return res.json({ entries });
+});
+
+router.get("/trust-ledger", async (_req, res) => {
+  const entries = await listLedgerEntries();
+
+  return res.json({ entries });
+});
+
 router.post("/watchlist", async (req, res) => {
   const symbol = String(req.body.symbol ?? "").trim().toUpperCase();
 
@@ -32,7 +55,7 @@ router.post("/watchlist", async (req, res) => {
     });
   }
 
-  const entry = await createWatchlistEntry({
+  const { entry, created } = await upsertWatchlistEntry({
     symbol,
     direction: String(req.body.direction ?? "NEUTRAL"),
     suggestedAction: String(req.body.suggestedAction ?? "WATCH"),
@@ -50,11 +73,11 @@ router.post("/watchlist", async (req, res) => {
     traceId:
       typeof req.body.traceId === "string" ? req.body.traceId : undefined,
     timeHorizon: normalizeSheetsHorizon(req.body.timeHorizon),
-    status: normalizeWatchlistStatus(req.body.status),
+    status: "Watching",
   });
 
   try {
-    await appendWatchlistRow({
+    await upsertWatchlistRow({
       dateGenerated: entry.createdAt.slice(0, 10),
       ticker: entry.symbol,
       thesis: normalizeSheetsDirection(entry.direction),
@@ -71,7 +94,7 @@ router.post("/watchlist", async (req, res) => {
   } catch (error) {
     // Do not report a successful save when the spreadsheet sync failed, and
     // remove the local entry so a retry does not create a duplicate.
-    await deleteWatchlistEntry(entry.id).catch((rollbackError) => {
+    if (created) await deleteWatchlistEntry(entry.id).catch((rollbackError) => {
       console.error("Could not roll back local watchlist entry:", rollbackError);
     });
     console.error("Could not append watchlist entry to Google Sheets:", error);
@@ -83,31 +106,20 @@ router.post("/watchlist", async (req, res) => {
     });
   }
 
-  return res.status(201).json({ entry });
+  return res.status(created ? 201 : 200).json({ entry });
 });
 
 router.patch("/watchlist/:id/status", async (req, res) => {
-  if (!isWatchlistStatus(req.body.status)) {
+  if (!isWatchlistStatus(req.body.status) || req.body.status === "Watching") {
     return res.status(400).json({
       error: "INVALID_WATCHLIST_STATUS",
-      message: "Status must be Watching, Triggered, Invalidated, or Expired.",
+      message: "Status must be Triggered, Invalidated, or Expired.",
     });
   }
   const nextStatus = normalizeWatchlistStatus(req.body.status);
+  const move = await moveWatchlistEntry(req.params.id, nextStatus);
 
-  const entries = await listWatchlistEntries();
-  const previousEntry = entries.find((entry) => entry.id === req.params.id);
-
-  if (!previousEntry) {
-    return res.status(404).json({
-      error: "WATCHLIST_ENTRY_NOT_FOUND",
-      message: "No watchlist entry was found for that id.",
-    });
-  }
-
-  const entry = await updateWatchlistEntryStatus(req.params.id, nextStatus);
-
-  if (!entry) {
+  if (!move) {
     return res.status(404).json({
       error: "WATCHLIST_ENTRY_NOT_FOUND",
       message: "No watchlist entry was found for that id.",
@@ -115,19 +127,58 @@ router.patch("/watchlist/:id/status", async (req, res) => {
   }
 
   try {
-    await updateWatchlistRowStatus(entry);
+    if (nextStatus === "Triggered") {
+      await moveWatchlistRowToTradeList(move.entry as TradeEntry);
+    } else {
+      await moveWatchlistRowToLedger(move.entry as LedgerEntry);
+    }
   } catch (error) {
-    await updateWatchlistEntryStatus(previousEntry.id, previousEntry.status).catch(
-      (rollbackError) => {
-        console.error("Could not roll back local watchlist status:", rollbackError);
-      }
-    );
-    console.error("Could not update watchlist status in Google Sheets:", error);
+    await rollbackWatchlistMove(move.entry, move.previousEntry).catch((rollbackError) => {
+      console.error("Could not roll back local lifecycle move:", rollbackError);
+    });
+    console.error("Could not move watchlist row in Google Sheets:", error);
 
     return res.status(502).json({
       error: "GOOGLE_SHEETS_SYNC_FAILED",
       message:
-        "The watchlist status could not be saved to Google Sheets. Check the API logs for details.",
+        "The watchlist lifecycle action could not be saved to Google Sheets. Check the API logs for details.",
+    });
+  }
+
+  return res.json({ entry: move.entry });
+});
+
+router.patch("/trade-list/:id/close", async (req, res) => {
+  const outcome = String(req.body.outcome ?? "");
+
+  if (outcome !== "Win" && outcome !== "Loss") {
+    return res.status(400).json({
+      error: "INVALID_TRADE_OUTCOME",
+      message: "Outcome must be Win or Loss.",
+    });
+  }
+
+  const entry = await closeTradeEntry(req.params.id, outcome, {
+    exitPrice: parseNullableNumber(req.body.exitPrice),
+    notes: typeof req.body.notes === "string" ? req.body.notes : undefined,
+  });
+
+  if (!entry) {
+    return res.status(404).json({
+      error: "TRADE_ENTRY_NOT_FOUND",
+      message: "No trade entry was found for that id.",
+    });
+  }
+
+  try {
+    await appendClosedTradeToLedger(entry);
+  } catch (error) {
+    console.error("Could not append closed trade to Google Sheets:", error);
+
+    return res.status(502).json({
+      error: "GOOGLE_SHEETS_SYNC_FAILED",
+      message:
+        "The closed trade could not be saved to Google Sheets. Check the API logs for details.",
     });
   }
 

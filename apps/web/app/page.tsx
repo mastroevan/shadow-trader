@@ -9,8 +9,6 @@ import {
   BookmarkPlus,
   CheckCircle2,
   ClipboardList,
-  FileClock,
-  History,
   Newspaper,
   RefreshCw,
   Search,
@@ -102,7 +100,33 @@ type SavedWatchlistEntry = {
   updatedAt: string;
 };
 
-type ThesisStatus = 'ACTIVE' | 'TRIGGERED' | 'INVALIDATED' | 'EXPIRED' | 'RESOLVED';
+type TradeEntry = SavedWatchlistEntry & {
+  status: 'Triggered';
+  entryDate: string | null;
+  entryPrice: number | null;
+  currentPrice: number | null;
+  currentProfitLoss: number | null;
+  currentProfitLossPercent: number | null;
+  notes: string;
+};
+
+type LedgerEntry = SavedWatchlistEntry & {
+  ledgerId: string;
+  recordType: 'Invalidated Setup' | 'Expired Setup' | 'Closed Trade';
+  dateInvalidated?: string;
+  invalidationReason?: string;
+  expirationDate?: string;
+  entryDate?: string | null;
+  entryPrice?: number | null;
+  exitDate?: string;
+  exitPrice?: number | null;
+  profitLoss?: number | null;
+  profitLossPercent?: number | null;
+  outcome?: 'Win' | 'Loss';
+  notes?: string;
+};
+
+type ThesisStatus = 'ACTIVE' | 'TRIGGERED' | 'INVALIDATED' | 'EXPIRED';
 type WatchlistStatus = 'Watching' | 'Triggered' | 'Invalidated' | 'Expired';
 
 type ThesisOutcome = {
@@ -139,7 +163,6 @@ type ThesisRecord = {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const API_KEY = process.env.NEXT_PUBLIC_SHADOW_TRADER_API_KEY;
 const DEMO_TICKERS = ['NVDA', 'AAPL', 'TSLA', 'META', 'AMZN'];
-const watchlistStatuses: WatchlistStatus[] = ['Watching', 'Triggered', 'Invalidated', 'Expired'];
 
 function apiHeaders() {
   return {
@@ -155,49 +178,47 @@ export default function Home() {
   const [savingWatchlist, setSavingWatchlist] = useState(false);
   const [savedEntry, setSavedEntry] = useState<SavedWatchlistEntry | null>(null);
   const [watchlistEntries, setWatchlistEntries] = useState<SavedWatchlistEntry[]>([]);
+  const [tradeEntries, setTradeEntries] = useState<TradeEntry[]>([]);
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
   const [loadingWatchlist, setLoadingWatchlist] = useState(false);
   const [deletingWatchlistId, setDeletingWatchlistId] = useState<string | null>(null);
   const [updatingWatchlistStatusId, setUpdatingWatchlistStatusId] = useState<string | null>(null);
-  const [recentTheses, setRecentTheses] = useState<ThesisRecord[]>([]);
+  const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
   const [resolvingOutcome, setResolvingOutcome] = useState<ThesisStatus | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    void loadWatchlist();
-    void loadRecentTheses();
+    void loadWorkflow();
   }, []);
 
-  async function loadWatchlist() {
+  async function loadWorkflow() {
     setLoadingWatchlist(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/watchlist`, {
-        headers: apiHeaders(),
-      });
+      const [watchlistResponse, tradeResponse, ledgerResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/watchlist`, { headers: apiHeaders() }),
+        fetch(`${API_BASE_URL}/api/trade-list`, { headers: apiHeaders() }),
+        fetch(`${API_BASE_URL}/api/trust-ledger`, { headers: apiHeaders() }),
+      ]);
 
-      if (!response.ok) return;
+      if (watchlistResponse.ok) {
+        const data = (await watchlistResponse.json()) as { entries?: SavedWatchlistEntry[] };
+        setWatchlistEntries(data.entries ?? []);
+      }
 
-      const data = (await response.json()) as { entries?: SavedWatchlistEntry[] };
-      setWatchlistEntries(data.entries ?? []);
+      if (tradeResponse.ok) {
+        const data = (await tradeResponse.json()) as { entries?: TradeEntry[] };
+        setTradeEntries(data.entries ?? []);
+      }
+
+      if (ledgerResponse.ok) {
+        const data = (await ledgerResponse.json()) as { entries?: LedgerEntry[] };
+        setLedgerEntries(data.entries ?? []);
+      }
     } catch {
       // The watchlist is useful when available, but analysis should still work without it.
     } finally {
       setLoadingWatchlist(false);
-    }
-  }
-
-  async function loadRecentTheses() {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/theses`, {
-        headers: apiHeaders(),
-      });
-
-      if (!response.ok) return;
-
-      const data = (await response.json()) as { records?: ThesisRecord[] };
-      setRecentTheses((data.records ?? []).slice(0, 5));
-    } catch {
-      // Thesis history is a trust enhancement, not a blocker for fresh analysis.
     }
   }
 
@@ -229,7 +250,6 @@ export default function Home() {
       }
 
       setResult(data);
-      void loadRecentTheses();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong.';
       setError(message === 'Failed to fetch' ? 'Could not reach the analysis API. Make sure the backend is running on port 3001.' : message);
@@ -278,7 +298,7 @@ export default function Home() {
 
       const entry = data.entry;
       setSavedEntry(entry);
-      setWatchlistEntries((entries) => [entry, ...entries.filter((currentEntry) => currentEntry.id !== entry.id)]);
+      setWatchlistEntries((entries) => [entry, ...entries.filter((currentEntry) => currentEntry.symbol !== entry.symbol)]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not save this watchlist entry.';
       setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
@@ -331,19 +351,56 @@ export default function Home() {
         body: JSON.stringify({ status }),
       });
 
-      const data = (await response.json()) as { entry?: SavedWatchlistEntry; message?: string; error?: string };
+      const data = (await response.json()) as { entry?: SavedWatchlistEntry | TradeEntry | LedgerEntry; message?: string; error?: string };
 
       if (!response.ok || !data.entry) {
         throw new Error(data.message ?? data.error ?? 'Could not update this watchlist status.');
       }
 
-      setWatchlistEntries((entries) => entries.map((entry) => entry.id === entryId ? data.entry! : entry));
-      setSavedEntry((entry) => entry?.id === entryId ? data.entry! : entry);
+      setWatchlistEntries((entries) => entries.filter((entry) => entry.id !== entryId));
+      if (data.entry.status === 'Triggered') {
+        setTradeEntries((entries) => [data.entry as TradeEntry, ...entries.filter((entry) => entry.id !== entryId)]);
+      } else {
+        setLedgerEntries((entries) => [data.entry as LedgerEntry, ...entries]);
+      }
+      setSavedEntry((entry) => entry?.id === entryId ? null : entry);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not update this watchlist status.';
       setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
     } finally {
       setUpdatingWatchlistStatusId(null);
+    }
+  }
+
+  async function handleCloseTrade(entryId: string, outcome: 'Win' | 'Loss') {
+    setClosingTradeId(entryId);
+    setError('');
+
+    try {
+      const trade = tradeEntries.find((entry) => entry.id === entryId);
+      const response = await fetch(`${API_BASE_URL}/api/trade-list/${entryId}/close`, {
+        method: 'PATCH',
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          outcome,
+          exitPrice: trade?.currentPrice ?? trade?.entryPrice ?? null,
+          notes: trade?.notes ?? '',
+        }),
+      });
+
+      const data = (await response.json()) as { entry?: LedgerEntry; message?: string; error?: string };
+
+      if (!response.ok || !data.entry) {
+        throw new Error(data.message ?? data.error ?? 'Could not close this trade.');
+      }
+
+      setTradeEntries((entries) => entries.filter((entry) => entry.id !== entryId));
+      setLedgerEntries((entries) => [data.entry!, ...entries]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not close this trade.';
+      setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
+    } finally {
+      setClosingTradeId(null);
     }
   }
 
@@ -372,7 +429,6 @@ export default function Home() {
       }
 
       setResult((current) => current ? { ...current, thesisRecord: data.record } : current);
-      void loadRecentTheses();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not update thesis outcome.';
       setError(message);
@@ -471,10 +527,18 @@ export default function Home() {
           loading={loadingWatchlist}
           deletingId={deletingWatchlistId}
           updatingStatusId={updatingWatchlistStatusId}
-          onRefresh={() => void loadWatchlist()}
+          onRefresh={() => void loadWorkflow()}
           onDelete={handleDeleteWatchlistEntry}
           onUpdateStatus={handleUpdateWatchlistStatus}
         />
+
+        <TradeListCard
+          entries={tradeEntries}
+          closingTradeId={closingTradeId}
+          onCloseTrade={handleCloseTrade}
+        />
+
+        <TrustLedgerList entries={ledgerEntries} />
 
         {result && quote && (
           <section className="grid gap-6 lg:grid-cols-[0.95fr_1.25fr]">
@@ -521,18 +585,12 @@ export default function Home() {
           </section>
         )}
 
-        {(thesisRecord || recentTheses.length > 0) && (
-          <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-            {thesisRecord && (
-              <TrustLedgerCard
-                record={thesisRecord}
-                resolvingOutcome={resolvingOutcome}
-                onResolve={handleResolveThesis}
-              />
-            )}
-
-            <RecentThesesCard records={recentTheses} />
-          </section>
+        {thesisRecord && (
+          <TrustLedgerCard
+            record={thesisRecord}
+            resolvingOutcome={resolvingOutcome}
+            onResolve={handleResolveThesis}
+          />
         )}
 
         {thesis && tradePlan && (
@@ -633,28 +691,20 @@ function WatchlistCard({
                     </span>
                   </div>
 
-                  <p className="mt-3 line-clamp-3 text-sm font-semibold leading-6 text-zinc-800">
-                    {entry.thesis || 'No thesis summary saved.'}
-                  </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className="sr-only" htmlFor={`watchlist-status-${entry.id}`}>
-                    Watchlist status
-                  </label>
-                  <select
-                    id={`watchlist-status-${entry.id}`}
-                    value={entry.status ?? 'Watching'}
-                    disabled={updatingStatusId === entry.id}
-                    onChange={(event) => onUpdateStatus(entry.id, event.target.value as WatchlistStatus)}
-                    className="min-h-10 rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {watchlistStatuses.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
+                  {(['Triggered', 'Invalidated', 'Expired'] as WatchlistStatus[]).map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      disabled={updatingStatusId === entry.id}
+                      onClick={() => onUpdateStatus(entry.id, status)}
+                      className="inline-flex min-h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {updatingStatusId === entry.id ? 'Saving...' : status}
+                    </button>
+                  ))}
 
                   <button
                     type="button"
@@ -675,27 +725,14 @@ function WatchlistCard({
                 />
                 <MiniStat label="Start" value={entry.startPrice === null ? 'N/A' : formatCurrency(entry.startPrice)} />
                 <MiniStat label="Horizon" value={entry.timeHorizon || '1W'} />
-                <MiniStat label="Trace" value={entry.traceId ? entry.traceId.slice(0, 8) : 'N/A'} />
-                <MiniStat label="Entry ID" value={entry.id.slice(0, 8)} />
+                <MiniStat label="Entry Trigger" value={entry.entryTrigger || 'Watch for signal confirmation.'} />
+                <MiniStat label="Invalidation" value={entry.invalidation || 'Reassess if the thesis breaks.'} />
               </div>
 
-              <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                <PlanBlock label="Entry Trigger" value={entry.entryTrigger || 'Watch for signal confirmation.'} />
-                <PlanBlock label="Invalidation" value={entry.invalidation || 'Reassess if the thesis breaks.'} />
-                <div className="rounded-lg border border-zinc-200 bg-white p-4">
-                  <p className="text-xs font-bold uppercase text-zinc-500">Watch Conditions</p>
-                  {entry.watchConditions.length > 0 ? (
-                    <ul className="mt-3 space-y-2">
-                      {entry.watchConditions.map((condition, index) => (
-                        <li key={`${entry.id}-${condition}-${index}`} className="text-sm font-semibold leading-6 text-zinc-800">
-                          {condition}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-3 text-sm text-zinc-500">No watch conditions saved.</p>
-                  )}
-                </div>
+              <div className="mt-4 grid gap-2">
+                <DisclosureBlock label="Full Thesis" value={entry.thesis || 'No thesis summary saved.'} />
+                <DisclosureBlock label="Watch Conditions" value={entry.watchConditions.length > 0 ? entry.watchConditions.join('\n') : 'No watch conditions saved.'} />
+                <DisclosureBlock label="Trace" value={entry.traceId ?? 'N/A'} />
               </div>
             </div>
           ))
@@ -768,6 +805,138 @@ function ActionPlanCard({
   );
 }
 
+function TradeListCard({
+  entries,
+  closingTradeId,
+  onCloseTrade,
+}: {
+  entries: TradeEntry[];
+  closingTradeId: string | null;
+  onCloseTrade: (entryId: string, outcome: 'Win' | 'Loss') => void;
+}) {
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+      <div className="flex items-center gap-2">
+        <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
+          <TrendingUp className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-sm font-bold uppercase text-zinc-500">Trade List</p>
+          <h3 className="text-2xl font-bold">Triggered active trades</h3>
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-4">
+        {entries.length > 0 ? (
+          entries.map((entry) => (
+            <div key={entry.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-zinc-950 px-3 py-1 text-sm font-bold text-white">{entry.symbol}</span>
+                  <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${watchlistStatusClass(entry.status)}`}>
+                    Triggered
+                  </span>
+                  <span className="text-xs font-semibold uppercase text-zinc-500">
+                    {formatDate(entry.entryDate ?? entry.updatedAt)}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {(['Win', 'Loss'] as const).map((outcome) => (
+                    <button
+                      key={outcome}
+                      type="button"
+                      disabled={closingTradeId === entry.id}
+                      onClick={() => onCloseTrade(entry.id, outcome)}
+                      className="inline-flex min-h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {closingTradeId === entry.id ? 'Closing...' : `Closed ${outcome}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-6">
+                <MiniStat label="Entry Date" value={formatDate(entry.entryDate ?? undefined)} />
+                <MiniStat label="Entry Price" value={formatCurrency(entry.entryPrice ?? undefined)} />
+                <MiniStat label="Current Price" value={formatCurrency(entry.currentPrice ?? undefined)} />
+                <MiniStat label="P/L $" value={formatCurrency(entry.currentProfitLoss ?? undefined)} />
+                <MiniStat label="P/L %" value={formatPercent(entry.currentProfitLossPercent)} />
+                <MiniStat label="Notes" value={entry.notes || 'N/A'} />
+              </div>
+
+              <div className="mt-4 grid gap-2">
+                <DisclosureBlock label="Original Thesis" value={entry.thesis || 'No thesis saved.'} />
+                <DisclosureBlock label="Entry Trigger" value={entry.entryTrigger || 'N/A'} />
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
+            No triggered trades yet.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TrustLedgerList({ entries }: { entries: LedgerEntry[] }) {
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+      <div className="flex items-center gap-2">
+        <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
+          <ShieldCheck className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-sm font-bold uppercase text-zinc-500">Trust Ledger</p>
+          <h3 className="text-2xl font-bold">Finalized setup history</h3>
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-3">
+        {entries.length > 0 ? (
+          entries.map((entry) => (
+            <div key={entry.ledgerId} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-zinc-950 px-3 py-1 text-sm font-bold text-white">{entry.symbol}</span>
+                  <span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-zinc-700 shadow-sm">
+                    {entry.recordType}
+                  </span>
+                  {entry.outcome && (
+                    <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${entry.outcome === 'Win' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                      {entry.outcome}
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs font-semibold uppercase text-zinc-500">{formatDate(entry.updatedAt)}</span>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-5">
+                <MiniStat label="Trace" value={entry.traceId ? entry.traceId.slice(0, 8) : 'N/A'} />
+                <MiniStat label="Start" value={formatCurrency(entry.startPrice ?? undefined)} />
+                <MiniStat label="Entry" value={formatCurrency(entry.entryPrice ?? undefined)} />
+                <MiniStat label="Exit" value={formatCurrency(entry.exitPrice ?? undefined)} />
+                <MiniStat label="P/L" value={formatCurrency(entry.profitLoss ?? undefined)} />
+              </div>
+
+              <div className="mt-4 grid gap-2">
+                <DisclosureBlock label="Original Thesis" value={entry.thesis || 'No thesis saved.'} />
+                <DisclosureBlock label="Notes" value={entry.notes || entry.invalidationReason || 'N/A'} />
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
+            No finalized ledger records yet.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function TrustLedgerCard({
   record,
   resolvingOutcome,
@@ -784,7 +953,7 @@ function TrustLedgerCard({
     { label: 'SMA', value: evidence?.technicals?.sma20 ? formatCurrency(evidence.technicals.sma20) : 'N/A' },
   ];
   const isClosed = record.status !== 'ACTIVE';
-  const outcomeStatuses: ThesisStatus[] = ['TRIGGERED', 'INVALIDATED', 'EXPIRED', 'RESOLVED'];
+  const outcomeStatuses: ThesisStatus[] = ['TRIGGERED', 'INVALIDATED', 'EXPIRED'];
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
@@ -844,40 +1013,12 @@ function TrustLedgerCard({
   );
 }
 
-function RecentThesesCard({ records }: { records: ThesisRecord[] }) {
+function DisclosureBlock({ label, value }: { label: string; value: string }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="mb-5 flex items-center gap-2">
-        <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
-          <History className="h-5 w-5" />
-        </div>
-        <h3 className="text-xl font-bold">Recent Thesis Records</h3>
-      </div>
-
-      <div className="space-y-3">
-        {records.length > 0 ? (
-          records.map((record) => (
-            <div key={record.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <FileClock className="h-4 w-4 text-emerald-700" />
-                  <p className="text-sm font-bold text-zinc-950">{record.symbol}</p>
-                </div>
-                <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${statusClass(record.status)}`}>
-                  {record.status}
-                </span>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-semibold text-zinc-600">
-                <span>{record.direction}</span>
-                <span className="text-right">{formatDate(record.generatedAt)}</span>
-              </div>
-            </div>
-          ))
-        ) : (
-          <p className="text-sm text-zinc-500">No thesis records yet.</p>
-        )}
-      </div>
-    </section>
+    <details className="rounded-lg border border-zinc-200 bg-white p-4">
+      <summary className="cursor-pointer text-xs font-bold uppercase text-zinc-500">{label}</summary>
+      <p className="mt-3 whitespace-pre-line text-sm font-semibold leading-6 text-zinc-800">{value}</p>
+    </details>
   );
 }
 
@@ -1060,6 +1201,11 @@ function formatCurrency(value?: number) {
     currency: 'USD',
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatPercent(value?: number | null) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'N/A';
+  return `${(value * 100).toFixed(2)}%`;
 }
 
 function formatDate(value?: string) {

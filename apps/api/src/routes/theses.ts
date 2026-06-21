@@ -11,7 +11,6 @@ const VALID_OUTCOME_STATUSES = new Set<ThesisStatus>([
   "TRIGGERED",
   "INVALIDATED",
   "EXPIRED",
-  "RESOLVED",
 ]);
 
 router.get("/theses", async (_req, res) => {
@@ -53,7 +52,7 @@ router.patch("/theses/:id/outcome", async (req, res) => {
   if (!VALID_OUTCOME_STATUSES.has(status)) {
     return res.status(400).json({
       error: "INVALID_OUTCOME_STATUS",
-      message: "Outcome status must be TRIGGERED, INVALIDATED, EXPIRED, or RESOLVED.",
+      message: "Outcome status must be TRIGGERED, INVALIDATED, or EXPIRED.",
     });
   }
 

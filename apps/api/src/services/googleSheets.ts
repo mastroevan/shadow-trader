@@ -1,8 +1,10 @@
 import { google } from "googleapis";
-import type { WatchlistEntry } from "./watchlist";
+import type { LedgerEntry, TradeEntry, WatchlistEntry } from "./watchlist";
 
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-const DEFAULT_WATCHLIST_SHEET = "Watchlist";
+const DEFAULT_WATCHLIST_SHEET = "Active Watchlist";
+const DEFAULT_TRADE_LIST_SHEET = "Trade List";
+const DEFAULT_TRUST_LEDGER_SHEET = "Trust Ledger";
 let appendQueue = Promise.resolve();
 
 export type WatchlistSheetRow = {
@@ -56,15 +58,20 @@ export function buildWatchlistSheetValues(row: WatchlistSheetRow) {
   ];
 }
 
-export async function appendWatchlistRow(row: WatchlistSheetRow) {
+export async function upsertWatchlistRow(row: WatchlistSheetRow) {
   // Environment variables must be read when the request is handled. This
   // module is imported before index.ts calls dotenv.config().
-  const { spreadsheetId, keyFile, sheetName } = getSheetsConfig();
+  const { spreadsheetId, keyFile, sheetName, tradeListSheetName, trustLedgerSheetName } = getSheetsConfig();
   const sheets = createSheetsClient(keyFile);
   const quotedSheetName = quoteSheetName(sheetName);
 
   const nextAppend = appendQueue.then(async () => {
-    await appendWatchlistRowWithClient(row, sheets, {
+    await ensureWorkflowSheets(sheets, spreadsheetId, [
+      sheetName,
+      tradeListSheetName,
+      trustLedgerSheetName,
+    ]);
+    await upsertWatchlistRowWithClient(row, sheets, {
       spreadsheetId,
       quotedSheetName,
     });
@@ -79,6 +86,14 @@ export async function appendWatchlistRowWithClient(
   sheets: SheetsValuesClient,
   config: { spreadsheetId: string; quotedSheetName: string }
 ) {
+  await upsertWatchlistRowWithClient(row, sheets, config);
+}
+
+export async function upsertWatchlistRowWithClient(
+  row: WatchlistSheetRow,
+  sheets: SheetsValuesClient,
+  config: { spreadsheetId: string; quotedSheetName: string }
+) {
   // values.append guesses which table inside a range should receive the
   // row. This sheet also contains a vertical reference table, so that guess
   // can target the wrong area. Resolve the next row from the ticker column
@@ -88,16 +103,22 @@ export async function appendWatchlistRowWithClient(
     range: `${config.quotedSheetName}!B2:B`,
   });
   const tickerValues = tickerColumn.data.values ?? [];
+  const ticker = row.ticker.trim().toUpperCase();
   let lastTickerIndex = -1;
+  let matchingTickerIndex = -1;
 
   for (let index = tickerValues.length - 1; index >= 0; index -= 1) {
-    if (String(tickerValues[index]?.[0] ?? "").trim()) {
+    const value = String(tickerValues[index]?.[0] ?? "").trim().toUpperCase();
+    if (value === ticker) {
+      matchingTickerIndex = index;
+    }
+
+    if (value && lastTickerIndex === -1) {
       lastTickerIndex = index;
-      break;
     }
   }
 
-  const nextRow = lastTickerIndex + 3;
+  const nextRow = matchingTickerIndex >= 0 ? matchingTickerIndex + 2 : lastTickerIndex + 3;
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: config.spreadsheetId,
@@ -106,6 +127,51 @@ export async function appendWatchlistRowWithClient(
     requestBody: {
       values: [buildWatchlistSheetValues(row)],
     },
+  });
+}
+
+export async function moveWatchlistRowToTradeList(entry: TradeEntry) {
+  const { spreadsheetId, keyFile, sheetName, tradeListSheetName, trustLedgerSheetName } = getSheetsConfig();
+  const sheets = createSheetsClient(keyFile);
+  const activeSheetName = quoteSheetName(sheetName);
+  const tradeSheetName = quoteSheetName(tradeListSheetName);
+
+  await ensureWorkflowSheets(sheets, spreadsheetId, [sheetName, tradeListSheetName, trustLedgerSheetName]);
+  await appendTableRow(sheets, {
+    spreadsheetId,
+    quotedSheetName: tradeSheetName,
+    values: buildTradeListSheetValues(entry),
+    columns: "A:R",
+  });
+  await clearWatchlistRow(sheets, { spreadsheetId, quotedSheetName: activeSheetName, entry });
+}
+
+export async function moveWatchlistRowToLedger(entry: LedgerEntry) {
+  const { spreadsheetId, keyFile, sheetName, tradeListSheetName, trustLedgerSheetName } = getSheetsConfig();
+  const sheets = createSheetsClient(keyFile);
+  const activeSheetName = quoteSheetName(sheetName);
+  const ledgerSheetName = quoteSheetName(trustLedgerSheetName);
+
+  await ensureWorkflowSheets(sheets, spreadsheetId, [sheetName, tradeListSheetName, trustLedgerSheetName]);
+  await appendTableRow(sheets, {
+    spreadsheetId,
+    quotedSheetName: ledgerSheetName,
+    values: buildLedgerSheetValues(entry),
+    columns: "A:U",
+  });
+  await clearWatchlistRow(sheets, { spreadsheetId, quotedSheetName: activeSheetName, entry });
+}
+
+export async function appendClosedTradeToLedger(entry: LedgerEntry) {
+  const { spreadsheetId, keyFile, sheetName, tradeListSheetName, trustLedgerSheetName } = getSheetsConfig();
+  const sheets = createSheetsClient(keyFile);
+
+  await ensureWorkflowSheets(sheets, spreadsheetId, [sheetName, tradeListSheetName, trustLedgerSheetName]);
+  await appendTableRow(sheets, {
+    spreadsheetId,
+    quotedSheetName: quoteSheetName(trustLedgerSheetName),
+    values: buildLedgerSheetValues(entry),
+    columns: "A:U",
   });
 }
 
@@ -129,6 +195,138 @@ export async function updateWatchlistRowStatus(entry: WatchlistEntry) {
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [[entry.status]],
+    },
+  });
+}
+
+function buildTradeListSheetValues(entry: TradeEntry) {
+  return [
+    entry.createdAt.slice(0, 10),
+    entry.symbol,
+    entry.thesis,
+    entry.direction,
+    entry.confidenceScore ?? "",
+    entry.startPrice ?? "",
+    entry.entryTrigger,
+    entry.invalidation,
+    entry.timeHorizon,
+    entry.traceId ?? "",
+    entry.status,
+    entry.watchConditions.join("; "),
+    entry.entryDate ?? "",
+    entry.entryPrice ?? "",
+    entry.currentPrice ?? "",
+    entry.currentProfitLoss ?? "",
+    entry.currentProfitLossPercent ?? "",
+    entry.notes,
+  ];
+}
+
+function buildLedgerSheetValues(entry: LedgerEntry) {
+  return [
+    entry.recordType,
+    entry.symbol,
+    entry.thesis,
+    entry.traceId ?? "",
+    entry.startPrice ?? "",
+    entry.invalidationReason ?? "",
+    entry.dateInvalidated ?? "",
+    entry.expirationDate ?? "",
+    entry.entryDate ?? "",
+    entry.entryPrice ?? "",
+    entry.exitDate ?? "",
+    entry.exitPrice ?? "",
+    entry.profitLoss ?? "",
+    entry.profitLossPercent ?? "",
+    entry.outcome ?? "",
+    entry.notes ?? "",
+    entry.direction,
+    entry.confidenceScore ?? "",
+    entry.entryTrigger,
+    entry.timeHorizon,
+    entry.updatedAt,
+  ];
+}
+
+async function appendTableRow(
+  sheets: SheetsValuesClient,
+  input: {
+    spreadsheetId: string;
+    quotedSheetName: string;
+    values: unknown[];
+    columns: string;
+  }
+) {
+  const firstColumn = await sheets.spreadsheets.values.get({
+    spreadsheetId: input.spreadsheetId,
+    range: `${input.quotedSheetName}!A2:A`,
+  });
+  const values = firstColumn.data.values ?? [];
+  let lastIndex = -1;
+
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (String(values[index]?.[0] ?? "").trim()) {
+      lastIndex = index;
+      break;
+    }
+  }
+
+  const nextRow = lastIndex + 3;
+  const endColumn = input.columns.split(":")[1];
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: input.spreadsheetId,
+    range: `${input.quotedSheetName}!A${nextRow}:${endColumn}${nextRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [input.values] },
+  });
+}
+
+async function clearWatchlistRow(
+  sheets: SheetsClient,
+  input: {
+    spreadsheetId: string;
+    quotedSheetName: string;
+    entry: WatchlistEntry;
+  }
+) {
+  const rowNumber = await findWatchlistSheetRow(sheets, input);
+  if (!rowNumber) return;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: input.spreadsheetId,
+    range: `${input.quotedSheetName}!A${rowNumber}:L${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [Array(12).fill("")] },
+  });
+}
+
+async function ensureWorkflowSheets(
+  sheets: SheetsClient,
+  spreadsheetId: string,
+  sheetNames: string[]
+) {
+  const spreadsheet = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets.properties.title",
+  });
+  const existingTitles = new Set(
+    (spreadsheet.data.sheets ?? [])
+      .map((sheet) => sheet.properties?.title)
+      .filter((title): title is string => Boolean(title))
+  );
+  const missingSheetNames = sheetNames.filter((sheetName) => !existingTitles.has(sheetName));
+
+  if (missingSheetNames.length === 0) return;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: missingSheetNames.map((title) => ({
+        addSheet: {
+          properties: { title },
+        },
+      })),
     },
   });
 }
@@ -181,6 +379,12 @@ function getSheetsConfig() {
   const sheetName =
     process.env.GOOGLE_SHEETS_WATCHLIST_SHEET?.trim() ||
     DEFAULT_WATCHLIST_SHEET;
+  const tradeListSheetName =
+    process.env.GOOGLE_SHEETS_TRADE_LIST_SHEET?.trim() ||
+    DEFAULT_TRADE_LIST_SHEET;
+  const trustLedgerSheetName =
+    process.env.GOOGLE_SHEETS_TRUST_LEDGER_SHEET?.trim() ||
+    DEFAULT_TRUST_LEDGER_SHEET;
 
   if (!spreadsheetId) {
     throw new Error("Missing GOOGLE_SHEETS_ID");
@@ -190,7 +394,7 @@ function getSheetsConfig() {
     throw new Error("Missing GOOGLE_SERVICE_ACCOUNT_PATH");
   }
 
-  return { spreadsheetId, keyFile, sheetName };
+  return { spreadsheetId, keyFile, sheetName, tradeListSheetName, trustLedgerSheetName };
 }
 
 function quoteSheetName(sheetName: string) {

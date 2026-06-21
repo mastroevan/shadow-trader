@@ -38,7 +38,7 @@ test("buildWatchlistSheetValues maps watchlist fields to A:L order", () => {
   ]);
 });
 
-test("appendWatchlistRowWithClient updates the next real watchlist row", async () => {
+test("appendWatchlistRowWithClient updates an existing ticker row", async () => {
   const calls: unknown[] = [];
   const sheets = {
     spreadsheets: {
@@ -78,7 +78,7 @@ test("appendWatchlistRowWithClient updates the next real watchlist row", async (
       method: "update",
       input: {
         spreadsheetId: "sheet-id",
-        range: "'Watchlist'!A5:L5",
+        range: "'Watchlist'!A2:L2",
         valueInputOption: "USER_ENTERED",
         requestBody: {
           values: [buildWatchlistSheetValues(row)],
