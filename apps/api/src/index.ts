@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import analyzeRouter from './routes/analyze';
 import watchlistRouter from './routes/watchlist';
 import thesesRouter from './routes/theses';
+import observabilityRouter from './routes/observability';
 import { requireApiKey } from './middleware/apiKeyAuth';
 
 dotenv.config();
@@ -17,6 +18,7 @@ app.use('/api', requireApiKey);
 app.use('/api', analyzeRouter);
 app.use('/api', watchlistRouter);
 app.use('/api', thesesRouter);
+app.use('/api', observabilityRouter);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

@@ -3,7 +3,7 @@
 import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 
 export type FinnhubQuote = {
-  source: "finnhub";
+  source: "finnhub" | "yahoo-chart-api";
   symbol: string;
   price: number;
   high: number;
@@ -38,15 +38,32 @@ type FinnhubQuoteResponse = {
 };
 
 const FINNHUB_BASE_URL = "https://finnhub.io/api/v1";
+const MARKET_DATA_RETRIES = 2;
 
 export async function getFinnhubQuote(symbol: string): Promise<FinnhubQuote> {
+  const cleanSymbol = symbol.trim().toUpperCase();
+
+  try {
+    return await withRetry(() => getFinnhubQuoteOnce(cleanSymbol), {
+      attempts: MARKET_DATA_RETRIES,
+      label: `Finnhub quote ${cleanSymbol}`,
+    });
+  } catch (error) {
+    console.warn(
+      `Finnhub quote failed for ${cleanSymbol}; trying Yahoo fallback:`,
+      error
+    );
+
+    return getYahooQuoteFallback(cleanSymbol);
+  }
+}
+
+async function getFinnhubQuoteOnce(cleanSymbol: string): Promise<FinnhubQuote> {
   const token = process.env.FINNHUB_API_KEY;
 
   if (!token) {
     throw new Error("Missing FINNHUB_API_KEY");
   }
-
-  const cleanSymbol = symbol.trim().toUpperCase();
 
   const url = `${FINNHUB_BASE_URL}/quote?symbol=${encodeURIComponent(
     cleanSymbol
@@ -76,13 +93,22 @@ export async function getFinnhubQuote(symbol: string): Promise<FinnhubQuote> {
 export async function getFinnhubCompanyNews(
   symbol: string
 ): Promise<FinnhubNewsItem[]> {
+  const cleanSymbol = symbol.trim().toUpperCase();
+
+  return withRetry(() => getFinnhubCompanyNewsOnce(cleanSymbol), {
+    attempts: MARKET_DATA_RETRIES,
+    label: `Finnhub company news ${cleanSymbol}`,
+  });
+}
+
+async function getFinnhubCompanyNewsOnce(
+  cleanSymbol: string
+): Promise<FinnhubNewsItem[]> {
   const token = process.env.FINNHUB_API_KEY;
 
   if (!token) {
     throw new Error("Missing FINNHUB_API_KEY");
   }
-
-  const cleanSymbol = symbol.trim().toUpperCase();
 
   const today = new Date();
   const from = new Date(today);
@@ -124,6 +150,81 @@ export async function getFinnhubCompanyNews(
       datetime: Number(record.datetime ?? 0),
     };
   });
+}
+
+async function getYahooQuoteFallback(cleanSymbol: string): Promise<FinnhubQuote> {
+  const url =
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSymbol)}` +
+    "?range=5d&interval=1d";
+  const response = await fetchWithTimeout(url);
+
+  if (!response.ok) {
+    throw new Error(`Yahoo quote fallback failed: ${response.status}`);
+  }
+
+  const data = (await response.json()) as {
+    chart?: {
+      result?: Array<{
+        meta?: {
+          regularMarketPrice?: number;
+          regularMarketTime?: number;
+          regularMarketDayHigh?: number;
+          regularMarketDayLow?: number;
+          regularMarketOpen?: number;
+          chartPreviousClose?: number;
+          previousClose?: number;
+        };
+      }>;
+    };
+  };
+  const meta = data.chart?.result?.[0]?.meta;
+  const price = Number(meta?.regularMarketPrice ?? 0);
+  const previousClose = Number(
+    meta?.chartPreviousClose ?? meta?.previousClose ?? 0
+  );
+
+  return {
+    source: "yahoo-chart-api",
+    symbol: cleanSymbol,
+    price,
+    high: Number(meta?.regularMarketDayHigh ?? price),
+    low: Number(meta?.regularMarketDayLow ?? price),
+    open: Number(meta?.regularMarketOpen ?? price),
+    previousClose,
+    timestamp: Number(meta?.regularMarketTime ?? 0),
+    raw: {
+      c: price,
+      h: Number(meta?.regularMarketDayHigh ?? price),
+      l: Number(meta?.regularMarketDayLow ?? price),
+      o: Number(meta?.regularMarketOpen ?? price),
+      pc: previousClose,
+      t: Number(meta?.regularMarketTime ?? 0),
+    },
+  };
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  options: { attempts: number; label: string }
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= options.attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < options.attempts) {
+        console.warn(
+          `${options.label} failed on attempt ${attempt}; retrying:`,
+          error
+        );
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 export async function getTechnicalIndicators(

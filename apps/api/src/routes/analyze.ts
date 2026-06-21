@@ -149,6 +149,7 @@ type AgentThesisInput = {
   quote: {
     price: number;
     previousClose: number;
+    source?: string;
   };
   signals: ReturnType<typeof generateSignals>;
   signalStrings: string[];
@@ -174,7 +175,7 @@ async function getAgentThesis(input: AgentThesisInput): Promise<{
         symbol: input.symbol,
         signalCount: input.signalStrings.length,
         newsCount: input.news.length,
-        quoteSource: "finnhub",
+        quoteSource: input.quote.source ?? "unknown",
         sma20: input.technicals?.sma20,
       },
       async () => {

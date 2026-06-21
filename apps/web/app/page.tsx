@@ -90,15 +90,20 @@ type SavedWatchlistEntry = {
   direction: string;
   suggestedAction: string;
   confidenceScore: number | null;
+  startPrice: number | null;
   thesis: string;
   entryTrigger: string;
   invalidation: string;
   watchConditions: string[];
   traceId?: string;
+  timeHorizon: string;
+  status: WatchlistStatus;
   createdAt: string;
+  updatedAt: string;
 };
 
 type ThesisStatus = 'ACTIVE' | 'TRIGGERED' | 'INVALIDATED' | 'EXPIRED' | 'RESOLVED';
+type WatchlistStatus = 'Watching' | 'Triggered' | 'Invalidated' | 'Expired';
 
 type ThesisOutcome = {
   status: ThesisStatus;
@@ -134,6 +139,7 @@ type ThesisRecord = {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const API_KEY = process.env.NEXT_PUBLIC_SHADOW_TRADER_API_KEY;
 const DEMO_TICKERS = ['NVDA', 'AAPL', 'TSLA', 'META', 'AMZN'];
+const watchlistStatuses: WatchlistStatus[] = ['Watching', 'Triggered', 'Invalidated', 'Expired'];
 
 function apiHeaders() {
   return {
@@ -151,6 +157,7 @@ export default function Home() {
   const [watchlistEntries, setWatchlistEntries] = useState<SavedWatchlistEntry[]>([]);
   const [loadingWatchlist, setLoadingWatchlist] = useState(false);
   const [deletingWatchlistId, setDeletingWatchlistId] = useState<string | null>(null);
+  const [updatingWatchlistStatusId, setUpdatingWatchlistStatusId] = useState<string | null>(null);
   const [recentTheses, setRecentTheses] = useState<ThesisRecord[]>([]);
   const [resolvingOutcome, setResolvingOutcome] = useState<ThesisStatus | null>(null);
   const [error, setError] = useState('');
@@ -313,6 +320,33 @@ export default function Home() {
     }
   }
 
+  async function handleUpdateWatchlistStatus(entryId: string, status: WatchlistStatus) {
+    setUpdatingWatchlistStatusId(entryId);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/watchlist/${entryId}/status`, {
+        method: 'PATCH',
+        headers: apiHeaders(),
+        body: JSON.stringify({ status }),
+      });
+
+      const data = (await response.json()) as { entry?: SavedWatchlistEntry; message?: string; error?: string };
+
+      if (!response.ok || !data.entry) {
+        throw new Error(data.message ?? data.error ?? 'Could not update this watchlist status.');
+      }
+
+      setWatchlistEntries((entries) => entries.map((entry) => entry.id === entryId ? data.entry! : entry));
+      setSavedEntry((entry) => entry?.id === entryId ? data.entry! : entry);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not update this watchlist status.';
+      setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
+    } finally {
+      setUpdatingWatchlistStatusId(null);
+    }
+  }
+
   async function handleResolveThesis(status: ThesisStatus) {
     const thesisRecordId = result?.thesisRecord?.id ?? result?.thesisRecordId;
     if (!thesisRecordId || !quote?.price) return;
@@ -436,8 +470,10 @@ export default function Home() {
           entries={watchlistEntries}
           loading={loadingWatchlist}
           deletingId={deletingWatchlistId}
+          updatingStatusId={updatingWatchlistStatusId}
           onRefresh={() => void loadWatchlist()}
           onDelete={handleDeleteWatchlistEntry}
+          onUpdateStatus={handleUpdateWatchlistStatus}
         />
 
         {result && quote && (
@@ -530,14 +566,18 @@ function WatchlistCard({
   entries,
   loading,
   deletingId,
+  updatingStatusId,
   onRefresh,
   onDelete,
+  onUpdateStatus,
 }: {
   entries: SavedWatchlistEntry[];
   loading: boolean;
   deletingId: string | null;
+  updatingStatusId: string | null;
   onRefresh: () => void;
   onDelete: (entryId: string) => void;
+  onUpdateStatus: (entryId: string, status: WatchlistStatus) => void;
 }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
@@ -585,6 +625,9 @@ function WatchlistCard({
                     <span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-zinc-600 shadow-sm">
                       {entry.suggestedAction || 'WATCH'}
                     </span>
+                    <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${watchlistStatusClass(entry.status)}`}>
+                      {entry.status ?? 'Watching'}
+                    </span>
                     <span className="text-xs font-semibold uppercase text-zinc-500">
                       {formatDate(entry.createdAt)}
                     </span>
@@ -595,22 +638,43 @@ function WatchlistCard({
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={deletingId === entry.id}
-                  onClick={() => onDelete(entry.id)}
-                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-red-400 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  {deletingId === entry.id ? 'Removing...' : 'Remove'}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="sr-only" htmlFor={`watchlist-status-${entry.id}`}>
+                    Watchlist status
+                  </label>
+                  <select
+                    id={`watchlist-status-${entry.id}`}
+                    value={entry.status ?? 'Watching'}
+                    disabled={updatingStatusId === entry.id}
+                    onChange={(event) => onUpdateStatus(entry.id, event.target.value as WatchlistStatus)}
+                    className="min-h-10 rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {watchlistStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    disabled={deletingId === entry.id}
+                    onClick={() => onDelete(entry.id)}
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-red-400 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deletingId === entry.id ? 'Removing...' : 'Remove'}
+                  </button>
+                </div>
               </div>
 
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="mt-4 grid gap-3 md:grid-cols-5">
                 <MiniStat
                   label="Confidence"
                   value={entry.confidenceScore === null ? 'N/A' : `${Math.round(entry.confidenceScore * 100)}%`}
                 />
+                <MiniStat label="Start" value={entry.startPrice === null ? 'N/A' : formatCurrency(entry.startPrice)} />
+                <MiniStat label="Horizon" value={entry.timeHorizon || '1W'} />
                 <MiniStat label="Trace" value={entry.traceId ? entry.traceId.slice(0, 8) : 'N/A'} />
                 <MiniStat label="Entry ID" value={entry.id.slice(0, 8)} />
               </div>
@@ -1014,6 +1078,13 @@ function statusClass(status: ThesisStatus) {
   if (status === 'INVALIDATED') return 'bg-red-50 text-red-700';
   if (status === 'EXPIRED') return 'bg-amber-50 text-amber-700';
   return 'bg-zinc-100 text-zinc-700';
+}
+
+function watchlistStatusClass(status?: WatchlistStatus) {
+  if (status === 'Triggered') return 'bg-blue-50 text-blue-700';
+  if (status === 'Invalidated') return 'bg-red-50 text-red-700';
+  if (status === 'Expired') return 'bg-amber-50 text-amber-700';
+  return 'bg-emerald-50 text-emerald-700';
 }
 
 function directionClass(direction?: string) {

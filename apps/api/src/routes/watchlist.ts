@@ -3,11 +3,18 @@ import {
   createWatchlistEntry,
   deleteWatchlistEntry,
   listWatchlistEntries,
+  updateWatchlistEntryStatus,
 } from "../services/watchlist";
-import { appendWatchlistRow } from "../services/googleSheets";
+import { appendWatchlistRow, updateWatchlistRowStatus } from "../services/googleSheets";
+import {
+  normalizeSheetsDirection,
+  normalizeSheetsHorizon,
+  normalizeWatchlistStatus,
+  parseNullableNumber,
+  isWatchlistStatus,
+} from "../services/watchlistFields";
 
 const router = Router();
-const SHEETS_DIRECTIONS = new Set(["BEARISH", "BULLISH", "NEUTRAL"]);
 
 router.get("/watchlist", async (_req, res) => {
   const entries = await listWatchlistEntries();
@@ -42,6 +49,8 @@ router.post("/watchlist", async (req, res) => {
       : [],
     traceId:
       typeof req.body.traceId === "string" ? req.body.traceId : undefined,
+    timeHorizon: normalizeSheetsHorizon(req.body.timeHorizon),
+    status: normalizeWatchlistStatus(req.body.status),
   });
 
   try {
@@ -54,9 +63,9 @@ router.post("/watchlist", async (req, res) => {
       startPrice: entry.startPrice ?? "",
       entryTrigger: entry.entryTrigger,
       invalidation: entry.invalidation,
-      horizon: normalizeSheetsHorizon(req.body.timeHorizon),
+      horizon: entry.timeHorizon,
       traceId: entry.traceId ?? "",
-      status: "Watching",
+      status: entry.status,
       notes: entry.watchConditions.join("; "),
     });
   } catch (error) {
@@ -77,6 +86,54 @@ router.post("/watchlist", async (req, res) => {
   return res.status(201).json({ entry });
 });
 
+router.patch("/watchlist/:id/status", async (req, res) => {
+  if (!isWatchlistStatus(req.body.status)) {
+    return res.status(400).json({
+      error: "INVALID_WATCHLIST_STATUS",
+      message: "Status must be Watching, Triggered, Invalidated, or Expired.",
+    });
+  }
+  const nextStatus = normalizeWatchlistStatus(req.body.status);
+
+  const entries = await listWatchlistEntries();
+  const previousEntry = entries.find((entry) => entry.id === req.params.id);
+
+  if (!previousEntry) {
+    return res.status(404).json({
+      error: "WATCHLIST_ENTRY_NOT_FOUND",
+      message: "No watchlist entry was found for that id.",
+    });
+  }
+
+  const entry = await updateWatchlistEntryStatus(req.params.id, nextStatus);
+
+  if (!entry) {
+    return res.status(404).json({
+      error: "WATCHLIST_ENTRY_NOT_FOUND",
+      message: "No watchlist entry was found for that id.",
+    });
+  }
+
+  try {
+    await updateWatchlistRowStatus(entry);
+  } catch (error) {
+    await updateWatchlistEntryStatus(previousEntry.id, previousEntry.status).catch(
+      (rollbackError) => {
+        console.error("Could not roll back local watchlist status:", rollbackError);
+      }
+    );
+    console.error("Could not update watchlist status in Google Sheets:", error);
+
+    return res.status(502).json({
+      error: "GOOGLE_SHEETS_SYNC_FAILED",
+      message:
+        "The watchlist status could not be saved to Google Sheets. Check the API logs for details.",
+    });
+  }
+
+  return res.json({ entry });
+});
+
 router.delete("/watchlist/:id", async (req, res) => {
   const deleted = await deleteWatchlistEntry(req.params.id);
 
@@ -89,34 +146,5 @@ router.delete("/watchlist/:id", async (req, res) => {
 
   return res.status(204).send();
 });
-
-function parseNullableNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
-}
-
-function normalizeSheetsDirection(value: unknown): string {
-  const direction = String(value ?? "").trim().toUpperCase();
-
-  return SHEETS_DIRECTIONS.has(direction) ? direction : "NEUTRAL";
-}
-
-function normalizeSheetsHorizon(value: unknown): string {
-  const horizon = String(value ?? "").trim().toUpperCase();
-
-  if (horizon === "SHORT" || horizon === "1D") return "SHORT";
-  if (horizon === "MEDIUM") return "MEDIUM";
-
-  return "1W";
-}
 
 export default router;

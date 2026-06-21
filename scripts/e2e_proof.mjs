@@ -49,9 +49,16 @@ function buildWatchlistPayload(result) {
     suggestedAction: thesis.suggestedAction ?? "WATCH",
     confidenceScore:
       typeof thesis.confidenceScore === "number" ? thesis.confidenceScore : null,
+    startPrice:
+      typeof result.quote?.price === "number"
+        ? result.quote.price
+        : typeof result.thesisRecord?.initialPrice === "number"
+          ? result.thesisRecord.initialPrice
+          : null,
     thesis: thesis.thesis ?? "",
     entryTrigger: tradePlan.entryTrigger ?? "Watch for signal confirmation.",
     invalidation: tradePlan.invalidation ?? "Reassess if the thesis breaks.",
+    timeHorizon: thesis.timeHorizon ?? "1W",
     watchConditions: Array.isArray(tradePlan.watchConditions)
       ? tradePlan.watchConditions.slice(0, 5)
       : [],
@@ -82,6 +89,18 @@ const watchlist = await requestJson("/api/watchlist", {
 
 assert(watchlist.entry?.id, "Watchlist entry was not saved.");
 assert(watchlist.entry?.traceId === analysis.traceId, "Watchlist entry did not preserve trace ID.");
+assert(
+  watchlist.entry?.startPrice === analysis.quote.price,
+  "Watchlist entry did not preserve start price."
+);
+assert(
+  ["SHORT", "MEDIUM", "1W"].includes(watchlist.entry?.timeHorizon),
+  "Watchlist entry did not preserve a Sheets-compatible horizon."
+);
+assert(
+  watchlist.entry?.status === "Watching",
+  "Watchlist entry did not use the expected Sheets status."
+);
 
 const proof = {
   startedAt,
@@ -110,6 +129,9 @@ const proof = {
     id: watchlist.entry.id,
     symbol: watchlist.entry.symbol,
     traceId: watchlist.entry.traceId,
+    startPrice: watchlist.entry.startPrice,
+    timeHorizon: watchlist.entry.timeHorizon,
+    status: watchlist.entry.status,
   },
 };
 
