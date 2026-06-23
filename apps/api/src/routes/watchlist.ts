@@ -70,6 +70,17 @@ router.post("/watchlist", async (req, res) => {
     watchConditions: Array.isArray(req.body.watchConditions)
       ? req.body.watchConditions.map(String).slice(0, 5)
       : [],
+    riskExplanation:
+      typeof req.body.riskExplanation === "string"
+        ? req.body.riskExplanation
+        : undefined,
+    news: Array.isArray(req.body.news)
+      ? req.body.news.slice(0, 5).map((item: { headline?: unknown; source?: unknown; url?: unknown }) => ({
+          headline: typeof item.headline === "string" ? item.headline : undefined,
+          source: typeof item.source === "string" ? item.source : undefined,
+          url: typeof item.url === "string" ? item.url : undefined,
+        }))
+      : [],
     traceId:
       typeof req.body.traceId === "string" ? req.body.traceId : undefined,
     timeHorizon: normalizeSheetsHorizon(req.body.timeHorizon),

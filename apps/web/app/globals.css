@@ -10,3 +10,7 @@ body {
   margin: 0;
   background: #f6f7f9;
 }
+
+.dark body {
+  background: #09090b;
+}

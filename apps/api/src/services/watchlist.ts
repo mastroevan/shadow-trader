@@ -18,6 +18,12 @@ export type WatchlistEntry = {
   entryTrigger: string;
   invalidation: string;
   watchConditions: string[];
+  riskExplanation?: string;
+  news?: Array<{
+    headline?: string;
+    source?: string;
+    url?: string;
+  }>;
   traceId?: string;
   timeHorizon: string;
   status: WatchlistStatus;
@@ -276,6 +282,15 @@ function normalizeStoredEntry(entry: WatchlistEntry): WatchlistEntry {
         : null,
     watchConditions: Array.isArray(entry.watchConditions)
       ? entry.watchConditions.map(String)
+      : [],
+    riskExplanation:
+      typeof entry.riskExplanation === "string" ? entry.riskExplanation : undefined,
+    news: Array.isArray(entry.news)
+      ? entry.news.map((item) => ({
+          headline: typeof item?.headline === "string" ? item.headline : undefined,
+          source: typeof item?.source === "string" ? item.source : undefined,
+          url: typeof item?.url === "string" ? item.url : undefined,
+        }))
       : [],
     timeHorizon: normalizeSheetsHorizon(entry.timeHorizon),
     status: normalizeWatchlistStatus(entry.status),
