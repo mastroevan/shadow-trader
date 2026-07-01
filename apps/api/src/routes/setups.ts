@@ -1,18 +1,14 @@
-// apps/api/src/routes/analyze.ts
+// apps/api/src/routes/setups.ts
 
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
-import {
-  getFinnhubCompanyNews,
-  getFinnhubQuote,
-  getTechnicalIndicators,
-  isValidFinnhubQuote,
-} from "../services/finnhub";
-import { normalizeSymbol, getAliasSuggestion } from "../utils/symbols";
+import { getMarketSnapshot, isValidMarketQuote } from "../services/marketSnapshot";
+import { resolveInstrument, getAliasSuggestion } from "../utils/symbols";
 import { generateSignals } from "../utils/signals";
 import { traceAgentCall } from "../services/arizeTracker";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 import { createThesisRecord } from "../services/theses";
+import type { Instrument, MarketNewsItem, MarketQuote, MarketSnapshot, TechnicalIndicators } from "../types/market";
 
 const router = Router();
 
@@ -20,7 +16,7 @@ const AGENT_URL =
   process.env.AGENT_URL ?? "http://localhost:8000/analyze";
 const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 65000);
 
-router.post("/analyze", async (req, res) => {
+router.post("/setups/analyze", async (req, res) => {
   try {
     const originalInput = String(req.body.symbol ?? "").trim();
 
@@ -31,38 +27,37 @@ router.post("/analyze", async (req, res) => {
       });
     }
 
-    const symbol = normalizeSymbol(originalInput);
+    const instrument = resolveInstrument({
+      symbol: originalInput,
+      assetClass: req.body.assetClass,
+      exchange: req.body.exchange,
+      timeframe: req.body.timeframe,
+    });
+    const snapshot = await getMarketSnapshot(instrument);
+    const { quote, candles, news, technicals } = snapshot;
+    const symbol = instrument.displaySymbol || instrument.symbol;
 
-    const quote = await getFinnhubQuote(symbol);
-
-    if (!isValidFinnhubQuote(quote)) {
+    if (!isValidMarketQuote(quote)) {
       const suggestion = getAliasSuggestion(originalInput);
 
       return res.status(400).json({
         error: "NO_QUOTE_FOUND",
         message: suggestion
           ? `No quote found for ${originalInput}. Did you mean ${suggestion}?`
-          : `No quote found for ${originalInput}. Try AMZN, NVDA, TSLA, AAPL, META, or GOOGL.`,
+          : `No quote found for ${originalInput}. Try NVDA, AAPL, BTC, BTC/USD, or ETH-USD.`,
         originalInput,
-        symbol,
+        symbol: instrument.symbol,
+        instrument,
         suggestion,
         quote,
       });
     }
 
-    const [news, technicals] = await Promise.all([
-      getFinnhubCompanyNews(symbol).catch((error) => {
-        console.warn(`Company news failed for ${symbol}; continuing without headlines:`, error);
-
-        return [];
-      }),
-      getTechnicalIndicators(symbol),
-    ]);
-
     const signals = generateSignals({
+      instrument,
       quote,
+      candles,
       news,
-      technicals,
     });
 
     const newsSignals = news.slice(0, 5).map((item) => {
@@ -78,7 +73,9 @@ router.post("/analyze", async (req, res) => {
     const agentPayload = {
       symbol,
       originalInput,
+      instrument,
       quote,
+      candles,
       signals: signalStrings,
       signalDetails: signals,
       news,
@@ -87,7 +84,9 @@ router.post("/analyze", async (req, res) => {
 
     const { thesis, traceId, agentStatus } = await getAgentThesis({
       symbol,
+      instrument,
       quote,
+      candles,
       signals,
       signalStrings,
       news,
@@ -103,6 +102,7 @@ router.post("/analyze", async (req, res) => {
       thesis,
       evidence: {
         quote,
+        candles,
         signals: signalStrings,
         signalDetails: signals,
         news,
@@ -120,46 +120,42 @@ router.post("/analyze", async (req, res) => {
       thesisRecordId: thesisRecord.id,
       agentStatus,
       quote,
+      candles,
       signals: signalStrings,
       signalDetails: signals,
       news,
       technicals,
       meta: {
         symbol,
+        instrument,
         originalInput,
         analyzedAt: new Date().toISOString(),
         quoteSource: quote.source,
+        candleCount: candles.length,
       },
     });
   } catch (error) {
-    console.error("Analyze route failed:", error);
+    console.error("Setup analyze route failed:", error);
 
     return res.status(500).json({
-      error: "ANALYZE_FAILED",
+      error: "SETUP_ANALYZE_FAILED",
       message:
         error instanceof Error
           ? error.message
-          : "Unknown analyze route error",
+          : "Unknown setup analyze route error",
     });
   }
 });
 
 type AgentThesisInput = {
   symbol: string;
-  quote: {
-    price: number;
-    previousClose: number;
-    source?: string;
-  };
+  instrument: Instrument;
+  quote: MarketQuote;
+  candles: MarketSnapshot["candles"];
   signals: ReturnType<typeof generateSignals>;
   signalStrings: string[];
-  news: Array<{
-    headline: string;
-    source: string;
-  }>;
-  technicals: {
-    sma20: number | null;
-  } | null;
+  news: MarketNewsItem[];
+  technicals: TechnicalIndicators | null;
   agentPayload: Record<string, unknown>;
 };
 
@@ -170,10 +166,13 @@ async function getAgentThesis(input: AgentThesisInput): Promise<{
 }> {
   try {
     const { result: thesis, traceId } = await traceAgentCall(
-      "shadow_trader.analyze",
+      "shadow_trader.setups.analyze",
       {
         symbol: input.symbol,
+        assetClass: input.instrument.assetClass,
+        exchange: input.instrument.exchange ?? "unknown",
         signalCount: input.signalStrings.length,
+        candleCount: input.candles.length,
         newsCount: input.news.length,
         quoteSource: input.quote.source ?? "unknown",
         sma20: input.technicals?.sma20,
@@ -234,7 +233,9 @@ function buildFallbackThesis(input: AgentThesisInput, traceId: string) {
     input.quote.price > 0 && input.quote.previousClose > 0
       ? ((input.quote.price - input.quote.previousClose) / input.quote.previousClose) * 100
       : 0;
-  const smaTrend = input.signals.find((signal) => signal.type === "SMA_TREND");
+  const vwapSignal = input.signals.find((signal) => signal.type === "VWAP_POSITION");
+  const emaSignal = input.signals.find((signal) => signal.type === "EMA_ALIGNMENT");
+  const momentumSignal = input.signals.find((signal) => signal.type === "INTRADAY_MOMENTUM");
   const newsSentiment = input.signals.find((signal) => signal.type === "NEWS_SENTIMENT");
   const direction =
     priceChangePct > 1
@@ -250,26 +251,44 @@ function buildFallbackThesis(input: AgentThesisInput, traceId: string) {
     direction,
     thesis:
       `Rule-based fallback thesis for ${input.symbol}: price is ${priceChangePct.toFixed(2)}% versus the previous close. ` +
-      `${asSentence(smaTrend?.interpretation ?? "Trend context is limited.")} ` +
+      `${asSentence(vwapSignal?.interpretation ?? emaSignal?.interpretation ?? "Intraday trend context is limited.")} ` +
       `${headline ? `Latest headline reviewed: ${headline}` : "No recent headline was available."}`,
     confidenceScore: 0.35,
     bullishFactors: [
       priceChangePct > 0
         ? `Price is up ${priceChangePct.toFixed(2)}% versus the previous close.`
         : "The setup remains watchable while price action stabilizes.",
-      smaTrend?.interpretation ?? "Technical trend data was partially available.",
+      vwapSignal?.interpretation ?? emaSignal?.interpretation ?? "Intraday indicator data was partially available.",
     ],
     bearishFactors: [
       priceChangePct < 0
         ? `Price is down ${Math.abs(priceChangePct).toFixed(2)}% versus the previous close.`
         : "The fallback thesis has lower confidence because the AI agent did not complete.",
-      newsSentiment?.interpretation ?? "Headline sentiment could not be fully evaluated.",
+      momentumSignal?.interpretation ?? newsSentiment?.interpretation ?? "Intraday momentum could not be fully evaluated.",
     ],
     riskExplanation:
       "This is a degraded rule-based fallback because the AI agent did not return in time. Treat it as a lower-confidence note, not a full AI thesis.",
     suggestedAction,
     timeHorizon: "1W",
     traceId,
+    setup: {
+      bias:
+        direction === "BULLISH"
+          ? "LONG"
+          : direction === "BEARISH"
+            ? "SHORT"
+            : "NEUTRAL",
+      setupType: direction === "NEUTRAL" ? "NO_TRADE" : "SCALP",
+      entryZone: "Wait for confirmation around the current price before paper-trade entry.",
+      stopLoss: "Use the nearest intraday invalidation level from VWAP, EMA, or range structure.",
+      takeProfit: "Target the next intraday range boundary or a minimum 1.5R paper-trade exit.",
+      riskReward: "At least 1.5:1 preferred before tracking as an active setup.",
+      maxHoldTime: "Intraday only; reassess before the next session or major liquidity handoff.",
+      warnings: [
+        "Fallback setup generated without a completed AI agent response.",
+        "Confirm liquidity, spread, and candle structure before treating this as tradable.",
+      ],
+    },
     tradePlan: {
       entryTrigger:
         direction === "BEARISH"

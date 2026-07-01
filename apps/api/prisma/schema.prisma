@@ -1,0 +1,37 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model TradeLifecycleEntry {
+  id          String   @id
+  kind        String
+  symbol      String
+  status      String
+  ledgerId    String?  @unique
+  payloadJson String
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  @@index([kind, status])
+  @@index([kind, symbol])
+  @@index([updatedAt])
+}
+
+model ThesisRecord {
+  id          String   @id
+  symbol      String
+  status      String
+  payloadJson String
+  generatedAt DateTime
+  updatedAt   DateTime
+
+  @@index([symbol])
+  @@index([status])
+  @@index([generatedAt])
+}

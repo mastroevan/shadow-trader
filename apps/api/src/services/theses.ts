@@ -1,11 +1,11 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { getDb } from "./db";
 
 export type ThesisStatus = "ACTIVE" | "TRIGGERED" | "INVALIDATED" | "EXPIRED";
 
 export type ThesisEvidence = {
   quote: unknown;
+  candles?: unknown[];
   signals: string[];
   signalDetails: unknown[];
   news: unknown[];
@@ -42,30 +42,31 @@ type CreateThesisRecordInput = Omit<
   timeHorizon?: string;
 };
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const THESES_PATH = path.join(DATA_DIR, "theses.json");
-let writeQueue = Promise.resolve();
-
 export async function listThesisRecords(): Promise<ThesisRecord[]> {
-  try {
-    const data = await readFile(THESES_PATH, "utf8");
-    const records = JSON.parse(data) as ThesisRecord[];
+  const db = await getDb();
+  const rows = await db.thesisRecord.findMany({
+    orderBy: {
+      generatedAt: "desc",
+    },
+    take: 250,
+  });
 
-    return Array.isArray(records) ? records : [];
-  } catch {
-    return [];
-  }
+  return rows.map((row) => parsePayload<ThesisRecord>(row.payloadJson));
 }
 
 export async function getThesisRecord(id: string): Promise<ThesisRecord | null> {
-  const records = await listThesisRecords();
+  const db = await getDb();
+  const row = await db.thesisRecord.findUnique({
+    where: { id },
+  });
 
-  return records.find((record) => record.id === id) ?? null;
+  return row ? parsePayload<ThesisRecord>(row.payloadJson) : null;
 }
 
 export async function createThesisRecord(
   input: CreateThesisRecordInput
 ): Promise<ThesisRecord> {
+  const db = await getDb();
   const generatedAt = new Date();
   const record: ThesisRecord = {
     ...input,
@@ -76,7 +77,16 @@ export async function createThesisRecord(
     outcome: null,
   };
 
-  await updateThesisRecords((records) => [record, ...records].slice(0, 250));
+  await db.thesisRecord.create({
+    data: {
+      id: record.id,
+      symbol: record.symbol.toUpperCase(),
+      status: record.status,
+      payloadJson: JSON.stringify(record),
+      generatedAt,
+      updatedAt: generatedAt,
+    },
+  });
 
   return record;
 }
@@ -85,25 +95,30 @@ export async function updateThesisOutcome(
   id: string,
   outcome: Omit<ThesisOutcome, "resolvedAt">
 ): Promise<ThesisRecord | null> {
-  let updatedRecord: ThesisRecord | null = null;
+  const db = await getDb();
+  const row = await db.thesisRecord.findUnique({
+    where: { id },
+  });
 
-  await updateThesisRecords((records) => {
-    return records.map((record) => {
-      if (record.id !== id) {
-        return record;
-      }
+  if (!row) return null;
 
-      updatedRecord = {
-        ...record,
-        status: outcome.status,
-        outcome: {
-          ...outcome,
-          resolvedAt: new Date().toISOString(),
-        },
-      };
+  const current = parsePayload<ThesisRecord>(row.payloadJson);
+  const updatedRecord: ThesisRecord = {
+    ...current,
+    status: outcome.status,
+    outcome: {
+      ...outcome,
+      resolvedAt: new Date().toISOString(),
+    },
+  };
 
-      return updatedRecord;
-    });
+  await db.thesisRecord.update({
+    where: { id },
+    data: {
+      status: updatedRecord.status,
+      payloadJson: JSON.stringify(updatedRecord),
+      updatedAt: new Date(),
+    },
   });
 
   return updatedRecord;
@@ -124,25 +139,6 @@ function getExpiryDate(generatedAt: Date, timeHorizon?: string): Date {
   return expiresAt;
 }
 
-async function updateThesisRecords(
-  updater: (records: ThesisRecord[]) => ThesisRecord[]
-): Promise<void> {
-  const nextWrite = writeQueue.then(async () => {
-    const records = await listThesisRecords();
-    const nextRecords = updater(records);
-
-    await writeThesisRecords(nextRecords);
-  });
-
-  writeQueue = nextWrite.catch(() => undefined);
-
-  await nextWrite;
-}
-
-async function writeThesisRecords(records: ThesisRecord[]): Promise<void> {
-  await mkdir(DATA_DIR, { recursive: true });
-
-  const tempPath = path.join(DATA_DIR, `theses.${randomUUID()}.tmp`);
-  await writeFile(tempPath, JSON.stringify(records, null, 2));
-  await rename(tempPath, THESES_PATH);
+function parsePayload<T>(payloadJson: string): T {
+  return JSON.parse(payloadJson) as T;
 }

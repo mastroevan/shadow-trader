@@ -1,18 +1,9 @@
 // apps/api/src/services/finnhub.ts
 
 import { fetchWithTimeout } from "../utils/fetchWithTimeout";
+import type { MarketCandle, MarketQuote, TechnicalIndicators, Timeframe } from "../types/market";
 
-export type FinnhubQuote = {
-  source: "finnhub" | "yahoo-chart-api";
-  symbol: string;
-  price: number;
-  high: number;
-  low: number;
-  open: number;
-  previousClose: number;
-  timestamp: number;
-  raw: FinnhubQuoteResponse;
-};
+export type FinnhubQuote = MarketQuote;
 
 export type FinnhubNewsItem = {
   headline: string;
@@ -20,12 +11,6 @@ export type FinnhubNewsItem = {
   source: string;
   url: string;
   datetime: number;
-};
-
-export type TechnicalIndicators = {
-  sma20: number | null;
-  closeCount: number;
-  source: "yahoo-chart-api";
 };
 
 type FinnhubQuoteResponse = {
@@ -80,6 +65,7 @@ async function getFinnhubQuoteOnce(cleanSymbol: string): Promise<FinnhubQuote> {
   return {
     source: "finnhub",
     symbol: cleanSymbol,
+    assetClass: "stock",
     price: Number(data.c ?? 0),
     high: Number(data.h ?? 0),
     low: Number(data.l ?? 0),
@@ -186,6 +172,7 @@ async function getYahooQuoteFallback(cleanSymbol: string): Promise<FinnhubQuote>
   return {
     source: "yahoo-chart-api",
     symbol: cleanSymbol,
+    assetClass: "stock",
     price,
     high: Number(meta?.regularMarketDayHigh ?? price),
     low: Number(meta?.regularMarketDayLow ?? price),
@@ -276,6 +263,89 @@ export async function getTechnicalIndicators(
   } catch {
     return null;
   }
+}
+
+export async function getYahooIntradayCandles(
+  symbol: string,
+  timeframe: Timeframe
+): Promise<MarketCandle[]> {
+  const cleanSymbol = symbol.trim().toUpperCase();
+  const interval = getYahooInterval(timeframe);
+  const range = timeframe === "1h" ? "5d" : "1d";
+  const url =
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSymbol)}` +
+    `?range=${range}&interval=${interval}`;
+
+  try {
+    const response = await fetchWithTimeout(url);
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = (await response.json()) as {
+      chart?: {
+        result?: Array<{
+          timestamp?: number[];
+          indicators?: {
+            quote?: Array<{
+              open?: Array<number | null>;
+              high?: Array<number | null>;
+              low?: Array<number | null>;
+              close?: Array<number | null>;
+              volume?: Array<number | null>;
+            }>;
+          };
+        }>;
+      };
+    };
+    const result = data.chart?.result?.[0];
+    const timestamps = result?.timestamp ?? [];
+    const quote = result?.indicators?.quote?.[0];
+
+    if (!quote || timestamps.length === 0) {
+      return [];
+    }
+
+    return timestamps
+      .map((timestamp, index) => {
+        const open = quote.open?.[index];
+        const high = quote.high?.[index];
+        const low = quote.low?.[index];
+        const close = quote.close?.[index];
+        const volume = quote.volume?.[index];
+
+        if (
+          typeof open !== "number" ||
+          typeof high !== "number" ||
+          typeof low !== "number" ||
+          typeof close !== "number"
+        ) {
+          return null;
+        }
+
+        return {
+          timestamp,
+          open,
+          high,
+          low,
+          close,
+          volume: typeof volume === "number" ? volume : 0,
+        };
+      })
+      .filter((candle): candle is MarketCandle => candle !== null);
+  } catch {
+    return [];
+  }
+}
+
+function getYahooInterval(timeframe: Timeframe) {
+  if (timeframe === "1m") return "1m";
+  if (timeframe === "15m") return "15m";
+  if (timeframe === "1h") return "60m";
+  if (timeframe === "1d") return "1d";
+
+  return "5m";
 }
 
 export function isValidFinnhubQuote(

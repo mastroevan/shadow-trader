@@ -171,7 +171,7 @@ Deleting it will not break the app, but it will remove local saved thesis/watchl
 Main analysis endpoint:
 
 ```text
-POST /api/analyze
+POST /api/setups/analyze
 ```
 
 Thesis trust endpoints:

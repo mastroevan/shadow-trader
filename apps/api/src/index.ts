@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import analyzeRouter from './routes/analyze';
+import setupsRouter from './routes/setups';
 import watchlistRouter from './routes/watchlist';
 import thesesRouter from './routes/theses';
 import observabilityRouter from './routes/observability';
@@ -15,7 +15,7 @@ app.use(express.json());
 
 app.get('/health', (_, res) => res.json({ status: 'ok', service: 'shadow-trader-api' }));
 app.use('/api', requireApiKey);
-app.use('/api', analyzeRouter);
+app.use('/api', setupsRouter);
 app.use('/api', watchlistRouter);
 app.use('/api', thesesRouter);
 app.use('/api', observabilityRouter);

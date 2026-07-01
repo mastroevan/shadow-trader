@@ -6,9 +6,11 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BadgeDollarSign,
+  BarChart3,
   BookmarkPlus,
   CheckCircle2,
   ClipboardList,
+  Layers3,
   Moon,
   Newspaper,
   RefreshCw,
@@ -31,10 +33,22 @@ type TradingThesis = {
   suggestedAction?: string;
   timeHorizon?: string;
   traceId?: string;
+  setup?: DayTradeSetup;
   tradePlan?: TradePlan;
   watchlistEntry?: {
     reason?: string;
   };
+};
+
+type DayTradeSetup = {
+  bias?: 'LONG' | 'SHORT' | 'NEUTRAL' | string;
+  setupType?: 'BREAKOUT' | 'PULLBACK' | 'REVERSAL' | 'SCALP' | 'NO_TRADE' | string;
+  entryZone?: string;
+  stopLoss?: string;
+  takeProfit?: string;
+  riskReward?: string;
+  maxHoldTime?: string;
+  warnings?: string[];
 };
 
 type TradePlan = {
@@ -53,10 +67,28 @@ type Quote = {
   previousClose?: number;
 };
 
+type Candle = {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
+
+type InstrumentMeta = {
+  assetClass?: 'stock' | 'crypto' | string;
+  symbol?: string;
+  displaySymbol?: string;
+  exchange?: string;
+  timeframe?: string;
+};
+
 type SignalDetail = {
   type?: string;
   label?: string;
   value?: number | string;
+  unit?: 'percent' | 'price' | 'ratio' | 'score' | 'status';
   interpretation?: string;
 };
 
@@ -74,10 +106,13 @@ type AnalyzeResponse = {
   thesisRecordId?: string;
   signalDetails?: SignalDetail[];
   quote?: Quote;
+  candles?: Candle[];
   news?: NewsItem[];
   meta?: {
     symbol?: string;
     quoteSource?: string;
+    candleCount?: number;
+    instrument?: InstrumentMeta;
   };
   error?: string;
   message?: string;
@@ -110,6 +145,11 @@ type TradeEntry = SavedWatchlistEntry & {
   currentPrice: number | null;
   currentProfitLoss: number | null;
   currentProfitLossPercent: number | null;
+  quantity: number | null;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  fees: number | null;
+  slippage: number | null;
   notes: string;
 };
 
@@ -121,6 +161,11 @@ type LedgerEntry = SavedWatchlistEntry & {
   expirationDate?: string;
   entryDate?: string | null;
   entryPrice?: number | null;
+  quantity?: number | null;
+  stopLoss?: number | null;
+  takeProfit?: number | null;
+  fees?: number | null;
+  slippage?: number | null;
   exitDate?: string;
   exitPrice?: number | null;
   profitLoss?: number | null;
@@ -165,7 +210,11 @@ type ThesisRecord = {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const API_KEY = process.env.NEXT_PUBLIC_SHADOW_TRADER_API_KEY;
-const DEMO_TICKERS = ['NVDA', 'AAPL', 'TSLA', 'META', 'AMZN'];
+type AssetClass = 'stock' | 'crypto';
+type Timeframe = '1m' | '5m' | '15m' | '1h';
+
+const DEMO_INSTRUMENTS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'NVDA', 'TSLA', 'AAPL'];
+const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h'];
 const CARD_CLASS = 'rounded-lg border border-zinc-200/80 bg-white/95 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95 dark:shadow-[0_18px_50px_rgba(0,0,0,0.35)]';
 const INNER_CARD_CLASS = 'rounded-lg border border-zinc-200 bg-gradient-to-br from-white to-zinc-50 p-4 shadow-sm dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950';
 const THEME_STORAGE_KEY = 'shadow-trader-theme';
@@ -180,7 +229,9 @@ function apiHeaders() {
 export default function Home() {
   const [darkMode, setDarkMode] = useState(false);
   const [themeLoaded, setThemeLoaded] = useState(false);
-  const [symbol, setSymbol] = useState('NVDA');
+  const [symbol, setSymbol] = useState('BTC/USD');
+  const [assetClass, setAssetClass] = useState<AssetClass>('crypto');
+  const [timeframe, setTimeframe] = useState<Timeframe>('5m');
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [analysisModalOpen, setAnalysisModalOpen] = useState(false);
@@ -193,6 +244,8 @@ export default function Home() {
   const [loadingWatchlist, setLoadingWatchlist] = useState(false);
   const [updatingWatchlistStatusId, setUpdatingWatchlistStatusId] = useState<string | null>(null);
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
+  const [updatingPaperTradeId, setUpdatingPaperTradeId] = useState<string | null>(null);
+  const [markPriceDrafts, setMarkPriceDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -244,11 +297,11 @@ export default function Home() {
     }
   }
 
-  async function analyzeTicker(nextSymbol?: string) {
+  async function analyzeTicker(nextSymbol?: string, nextAssetClass = assetClass, nextTimeframe = timeframe) {
     const cleanSymbol = (nextSymbol ?? symbol).trim().toUpperCase();
 
     if (!cleanSymbol) {
-      setError('Enter a stock symbol first.');
+      setError('Enter a symbol first.');
       return;
     }
 
@@ -260,10 +313,10 @@ export default function Home() {
     setAnalysisModalOpen(false);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+      const response = await fetch(`${API_BASE_URL}/api/setups/analyze`, {
         method: 'POST',
         headers: apiHeaders(),
-        body: JSON.stringify({ symbol: cleanSymbol }),
+        body: JSON.stringify({ symbol: cleanSymbol, assetClass: nextAssetClass, timeframe: nextTimeframe }),
       });
 
       const data = (await response.json()) as AnalyzeResponse;
@@ -367,6 +420,72 @@ export default function Home() {
     }
   }
 
+  async function handleOpenPaperTrade(entry: SavedWatchlistEntry) {
+    setUpdatingWatchlistStatusId(entry.id);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/watchlist/${entry.id}/paper-trade`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          entryPrice: entry.startPrice,
+          quantity: 1,
+          notes: 'Opened from saved setup.',
+        }),
+      });
+
+      const data = (await response.json()) as { entry?: TradeEntry; message?: string; error?: string };
+
+      if (!response.ok || !data.entry) {
+        throw new Error(data.message ?? data.error ?? 'Could not open this paper trade.');
+      }
+
+      setWatchlistEntries((entries) => entries.filter((currentEntry) => currentEntry.id !== entry.id));
+      setTradeEntries((entries) => [data.entry!, ...entries.filter((currentEntry) => currentEntry.id !== entry.id)]);
+      setSavedEntry((currentEntry) => currentEntry?.id === entry.id ? null : currentEntry);
+      setSelectedWatchlistEntry((currentEntry) => currentEntry?.id === entry.id ? null : currentEntry);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not open this paper trade.';
+      setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
+    } finally {
+      setUpdatingWatchlistStatusId(null);
+    }
+  }
+
+  async function handleUpdatePaperTrade(entryId: string) {
+    const currentPrice = Number(markPriceDrafts[entryId]);
+
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
+      setError('Enter a valid mark price before updating the paper trade.');
+      return;
+    }
+
+    setUpdatingPaperTradeId(entryId);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/paper-trades/${entryId}`, {
+        method: 'PATCH',
+        headers: apiHeaders(),
+        body: JSON.stringify({ currentPrice }),
+      });
+
+      const data = (await response.json()) as { entry?: TradeEntry; message?: string; error?: string };
+
+      if (!response.ok || !data.entry) {
+        throw new Error(data.message ?? data.error ?? 'Could not update this paper trade.');
+      }
+
+      setTradeEntries((entries) => entries.map((entry) => entry.id === entryId ? data.entry! : entry));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not update this paper trade.';
+      setError(message === 'Failed to fetch' ? 'Could not reach the paper trade API. Make sure the backend is running on port 3001.' : message);
+    } finally {
+      setUpdatingPaperTradeId(null);
+    }
+  }
+
   async function handleCloseTrade(entryId: string, outcome: 'Win' | 'Loss') {
     setClosingTradeId(entryId);
     setError('');
@@ -401,6 +520,9 @@ export default function Home() {
 
   const thesis = result?.thesis;
   const quote = result?.quote;
+  const candles = result?.candles ?? [];
+  const setup = thesis?.setup;
+  const instrument = result?.meta?.instrument;
   const symbolLabel = thesis?.symbol ?? quote?.symbol ?? result?.meta?.symbol ?? symbol.toUpperCase();
   const priceChangePct = useMemo(() => {
     if (!quote?.price || !quote.previousClose) return null;
@@ -412,101 +534,175 @@ export default function Home() {
   const allSignals = result?.signalDetails ?? [];
   const topNews = result?.news?.filter((item) => item.headline).slice(0, 5) ?? [];
   const featuredSignals = allSignals.filter((signal) =>
-    ['PRICE_CHANGE', 'INTRADAY_RANGE', 'NEWS_SENTIMENT', 'SMA_TREND'].includes(signal.type ?? '')
+    ['INTRADAY_MOMENTUM', 'VWAP_POSITION', 'EMA_ALIGNMENT', 'RSI_14', 'VOLUME_SPIKE', 'RANGE_BREAKOUT', 'SPREAD_LIQUIDITY', 'NEWS_SENTIMENT'].includes(signal.type ?? '')
   );
   const tradePlan = thesis ? getTradePlan(thesis, featuredSignals) : null;
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#ecfdf5_0,#f6f7f9_34%,#f8fafc_100%)] px-5 py-8 text-zinc-950 transition-colors dark:bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.18)_0,#111113_34%,#09090b_100%)] dark:text-zinc-50 md:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <section className="relative rounded-lg border border-zinc-200/80 bg-white/95 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.07)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95 dark:shadow-[0_18px_50px_rgba(0,0,0,0.35)] md:p-8">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={darkMode}
-            aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-            onClick={() => setDarkMode((enabled) => !enabled)}
-            className="absolute right-4 top-4 inline-flex h-8 w-16 items-center rounded-full border border-zinc-300 bg-zinc-100 p-1 shadow-sm transition hover:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:ring-emerald-500/20 md:right-6 md:top-6"
-          >
-            <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full bg-white text-zinc-700 shadow-sm transition-transform dark:bg-emerald-500 dark:text-white ${darkMode ? 'translate-x-8' : 'translate-x-0'}`}>
-              {darkMode ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
-            </span>
-          </button>
-
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-sm font-bold uppercase text-emerald-700 dark:text-emerald-400">Shadow Trader</p>
-              <h1 className="mt-2 text-4xl font-bold tracking-normal md:text-5xl">Market thesis desk</h1>
-              <p className="mt-3 max-w-2xl text-base leading-7 text-zinc-600 dark:text-zinc-300">
-                Analyze a ticker, save the setup, then manage it through the watch list, trades list, and trust ledger.
-              </p>
+    <main className="min-h-screen bg-zinc-100 px-4 py-4 text-zinc-950 transition-colors dark:bg-zinc-950 dark:text-zinc-50 md:px-6">
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
+        <header className="rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-950 text-white dark:bg-emerald-600">
+                <Activity className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase text-zinc-500 dark:text-zinc-400">Shadow Trader</p>
+                <h1 className="text-2xl font-bold tracking-normal">Trading desk</h1>
+              </div>
             </div>
 
-            <form onSubmit={handleAnalyze} className="flex w-full flex-col gap-3 sm:flex-row lg:max-w-md">
+            <form onSubmit={handleAnalyze} className="grid gap-3 lg:grid-cols-[auto_1fr_auto_auto] xl:min-w-[820px]">
+              <div className="inline-grid grid-cols-2 rounded-lg border border-zinc-300 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-950">
+                {(['crypto', 'stock'] as AssetClass[]).map((asset) => (
+                  <button
+                    key={asset}
+                    type="button"
+                    onClick={() => setAssetClass(asset)}
+                    className={`min-h-10 rounded-md px-4 text-sm font-bold capitalize transition ${assetClass === asset ? 'bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-zinc-50' : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'}`}
+                  >
+                    {asset}
+                  </button>
+                ))}
+              </div>
+
               <input
                 value={symbol}
                 onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-                placeholder="NVDA"
+                placeholder={assetClass === 'crypto' ? 'BTC/USD' : 'NVDA'}
                 disabled={loading}
-                className="min-h-12 flex-1 rounded-lg border border-zinc-300 bg-white px-4 text-lg font-bold uppercase outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-emerald-500 dark:focus:ring-emerald-500/20 dark:disabled:bg-zinc-800"
+                className="min-h-12 rounded-lg border border-zinc-300 bg-white px-4 text-lg font-bold uppercase outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-emerald-500 dark:focus:ring-emerald-500/20 dark:disabled:bg-zinc-800"
               />
+
+              <div className="inline-grid grid-cols-4 rounded-lg border border-zinc-300 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-950">
+                {TIMEFRAMES.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setTimeframe(item)}
+                    className={`min-h-10 rounded-md px-3 text-xs font-bold uppercase transition ${timeframe === item ? 'bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-zinc-50' : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'}`}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-zinc-950 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-zinc-700"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
               >
                 <Search className="h-4 w-4" />
-                {loading ? 'Analyzing...' : 'Analyze'}
+                {loading ? 'Scanning...' : 'Scan Setup'}
               </button>
-
             </form>
-          </div>
 
-          <div className="mt-6 flex flex-wrap gap-2">
-            {DEMO_TICKERS.map((ticker) => (
-              <button
-                key={ticker}
-                type="button"
-                disabled={loading}
-                onClick={() => void analyzeTicker(ticker)}
-                className="rounded-full border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm font-bold text-zinc-700 transition hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-emerald-500 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
-              >
-                {ticker}
-              </button>
-            ))}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={darkMode}
+              aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              onClick={() => setDarkMode((enabled) => !enabled)}
+              className="inline-flex h-10 w-20 items-center rounded-full border border-zinc-300 bg-zinc-100 p-1 shadow-sm transition hover:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:ring-emerald-500/20"
+            >
+              <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-zinc-700 shadow-sm transition-transform dark:bg-emerald-500 dark:text-white ${darkMode ? 'translate-x-10' : 'translate-x-0'}`}>
+                {darkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+              </span>
+            </button>
           </div>
 
           {error && (
-            <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
               {error}
             </div>
           )}
-        </section>
+        </header>
+
+        <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
+          <InstrumentRail
+            activeSymbol={symbol}
+            loading={loading}
+            onSelect={(nextSymbol) => {
+              const nextAssetClass = nextSymbol.includes('/') ? 'crypto' : 'stock';
+              setAssetClass(nextAssetClass);
+              void analyzeTicker(nextSymbol, nextAssetClass, timeframe);
+            }}
+          />
+
+          <section className="grid gap-4">
+            <DeskChartPanel
+              symbol={symbolLabel}
+              quote={quote}
+              candles={candles}
+              priceChangePct={priceChangePct}
+              isPositive={isPositive}
+              instrument={instrument}
+              loading={loading}
+            />
+
+            <section className={CARD_CLASS}>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-emerald-700 dark:text-emerald-400" />
+                  <h2 className="text-xl font-bold">Intraday signals</h2>
+                </div>
+                <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                  {featuredSignals.length} active
+                </span>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {featuredSignals.length > 0 ? (
+                  featuredSignals.map((signal, index) => <SignalRow key={`${signal.type}-${signal.label}-${index}`} signal={signal} />)
+                ) : (
+                  <EmptyState title="No signal scan yet" body="Run a setup scan to populate VWAP, EMA, RSI, volume, range, and liquidity context." />
+                )}
+              </div>
+            </section>
+          </section>
+
+          <SetupTicket
+            symbol={symbolLabel}
+            thesis={thesis}
+            setup={setup}
+            confidencePct={confidencePct}
+            quote={quote}
+            plan={tradePlan}
+            saving={savingWatchlist}
+            savedEntry={savedEntry}
+            onAddToWatchlist={handleAddToWatchlist}
+            onOpenDetails={() => setAnalysisModalOpen(true)}
+          />
+        </div>
 
         {loading && (
           <section className="grid gap-4 md:grid-cols-3">
             {[0, 1, 2].map((item) => (
-              <div key={item} className="h-36 animate-pulse rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900" />
+              <div key={item} className="h-28 animate-pulse rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900" />
             ))}
           </section>
         )}
 
-        <div className="grid gap-6">
+        <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
           <WatchlistCard
             entries={watchlistEntries}
             loading={loadingWatchlist}
             updatingStatusId={updatingWatchlistStatusId}
             onRefresh={() => void loadWorkflow()}
             onUpdateStatus={handleUpdateWatchlistStatus}
+            onOpenPaperTrade={handleOpenPaperTrade}
             onViewThesis={setSelectedWatchlistEntry}
           />
 
-          <div className="grid gap-6 xl:grid-cols-2">
+          <div className="grid gap-4">
             <TradeListCard
               entries={tradeEntries}
               closingTradeId={closingTradeId}
+              updatingPaperTradeId={updatingPaperTradeId}
+              markPriceDrafts={markPriceDrafts}
+              onMarkPriceChange={(entryId, value) => setMarkPriceDrafts((drafts) => ({ ...drafts, [entryId]: value }))}
+              onUpdatePaperTrade={handleUpdatePaperTrade}
               onCloseTrade={handleCloseTrade}
             />
 
@@ -540,6 +736,228 @@ export default function Home() {
         onClose={() => setSelectedWatchlistEntry(null)}
       />
     </main>
+  );
+}
+
+function InstrumentRail({
+  activeSymbol,
+  loading,
+  onSelect,
+}: {
+  activeSymbol: string;
+  loading: boolean;
+  onSelect: (symbol: string) => void;
+}) {
+  return (
+    <aside className={CARD_CLASS}>
+      <div className="flex items-center gap-2">
+        <Layers3 className="h-5 w-5 text-emerald-700 dark:text-emerald-400" />
+        <h2 className="text-lg font-bold">Markets</h2>
+      </div>
+
+      <div className="mt-4 grid gap-2">
+        {DEMO_INSTRUMENTS.map((item) => {
+          const active = activeSymbol.toUpperCase() === item.toUpperCase();
+
+          return (
+            <button
+              key={item}
+              type="button"
+              disabled={loading}
+              onClick={() => onSelect(item)}
+              className={`flex min-h-12 items-center justify-between rounded-lg border px-3 text-left text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${active ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300' : 'border-zinc-200 bg-zinc-50 text-zinc-800 hover:border-emerald-300 hover:bg-white dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-emerald-600 dark:hover:bg-zinc-900'}`}
+            >
+              <span>{item}</span>
+              <span className="text-[11px] uppercase text-zinc-500 dark:text-zinc-400">{item.includes('/') ? 'Crypto' : 'Stock'}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-5 grid gap-3">
+        <MiniStat label="Watch setups" value={String(activeSymbol ? 1 : 0)} />
+        <MiniStat label="Mode" value="Paper setup" />
+      </div>
+    </aside>
+  );
+}
+
+function DeskChartPanel({
+  symbol,
+  quote,
+  candles,
+  priceChangePct,
+  isPositive,
+  instrument,
+  loading,
+}: {
+  symbol: string;
+  quote?: Quote;
+  candles: Candle[];
+  priceChangePct: number | null;
+  isPositive: boolean;
+  instrument?: InstrumentMeta;
+  loading: boolean;
+}) {
+  const visibleCandles = candles.slice(-32);
+  const prices = visibleCandles.flatMap((candle) => [candle.high, candle.low]);
+  const minPrice = prices.length ? Math.min(...prices) : 0;
+  const maxPrice = prices.length ? Math.max(...prices) : 0;
+  const priceRange = maxPrice - minPrice || 1;
+
+  return (
+    <section className={CARD_CLASS}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-3xl font-bold tracking-normal">{symbol}</h2>
+            <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold uppercase text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+              {instrument?.assetClass ?? 'market'}
+            </span>
+            <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold uppercase text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+              {instrument?.timeframe ?? '5m'}
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <p className="text-5xl font-bold">{formatCurrency(quote?.price)}</p>
+            <div className={`mb-1 inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-bold ${isPositive ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+              {isPositive ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+              {priceChangePct === null ? 'N/A' : `${priceChangePct.toFixed(2)}%`}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 lg:min-w-[300px]">
+          <MiniStat label="Open" value={formatCurrency(quote?.open)} />
+          <MiniStat label="High" value={formatCurrency(quote?.high)} />
+          <MiniStat label="Low" value={formatCurrency(quote?.low)} />
+        </div>
+      </div>
+
+      <div className="mt-6 h-[320px] rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
+        {loading ? (
+          <div className="h-full animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
+        ) : visibleCandles.length > 2 ? (
+          <div className="flex h-full items-end gap-1">
+            {visibleCandles.map((candle) => {
+              const top = ((maxPrice - candle.high) / priceRange) * 100;
+              const bottom = ((candle.low - minPrice) / priceRange) * 100;
+              const bodyTop = ((maxPrice - Math.max(candle.open, candle.close)) / priceRange) * 100;
+              const bodyBottom = ((Math.min(candle.open, candle.close) - minPrice) / priceRange) * 100;
+              const isUp = candle.close >= candle.open;
+
+              return (
+                <div key={candle.timestamp} className="relative h-full flex-1">
+                  <div
+                    className="absolute left-1/2 w-px -translate-x-1/2 bg-zinc-400 dark:bg-zinc-600"
+                    style={{ top: `${top}%`, bottom: `${bottom}%` }}
+                  />
+                  <div
+                    className={`absolute left-1/2 min-h-1 w-full max-w-[12px] -translate-x-1/2 rounded-sm ${isUp ? 'bg-emerald-500' : 'bg-red-500'}`}
+                    style={{ top: `${bodyTop}%`, bottom: `${bodyBottom}%` }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <EmptyState title="No candles loaded" body="Run a setup scan to load intraday OHLCV candles for this instrument." />
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3 text-xs font-semibold uppercase text-zinc-500 dark:text-zinc-400">
+        <span>Source: {quote?.source ?? 'N/A'}</span>
+        <span>Candles: {candles.length}</span>
+        <span>Exchange: {instrument?.exchange ?? 'N/A'}</span>
+      </div>
+    </section>
+  );
+}
+
+function SetupTicket({
+  symbol,
+  thesis,
+  setup,
+  confidencePct,
+  quote,
+  plan,
+  saving,
+  savedEntry,
+  onAddToWatchlist,
+  onOpenDetails,
+}: {
+  symbol: string;
+  thesis?: TradingThesis;
+  setup?: DayTradeSetup;
+  confidencePct: number | null;
+  quote?: Quote;
+  plan: Required<TradePlan> | null;
+  saving: boolean;
+  savedEntry: SavedWatchlistEntry | null;
+  onAddToWatchlist: () => void;
+  onOpenDetails: () => void;
+}) {
+  const bias = setup?.bias ?? (thesis?.direction?.toUpperCase().includes('BEAR') ? 'SHORT' : thesis?.direction?.toUpperCase().includes('BULL') ? 'LONG' : 'NEUTRAL');
+
+  return (
+    <aside className={CARD_CLASS}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase text-zinc-500 dark:text-zinc-400">Setup ticket</p>
+          <h2 className="mt-1 text-2xl font-bold">{symbol}</h2>
+        </div>
+        <span className={`rounded-full px-3 py-1 text-xs font-bold ${bias === 'LONG' ? 'bg-emerald-50 text-emerald-700' : bias === 'SHORT' ? 'bg-red-50 text-red-700' : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'}`}>
+          {bias}
+        </span>
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <MiniStat label="Type" value={setup?.setupType ?? 'NO_TRADE'} />
+        <MiniStat label="Confidence" value={confidencePct === null ? 'N/A' : `${confidencePct}%`} />
+        <MiniStat label="Price" value={formatCurrency(quote?.price)} />
+        <MiniStat label="Hold" value={setup?.maxHoldTime ?? thesis?.timeHorizon ?? 'N/A'} />
+      </div>
+
+      <div className="mt-5 grid gap-3">
+        <PlanBlock label="Entry Zone" value={setup?.entryZone ?? plan?.entryTrigger ?? 'Run a setup scan to populate entry context.'} />
+        <PlanBlock label="Stop Loss" value={setup?.stopLoss ?? plan?.invalidation ?? 'N/A'} />
+        <PlanBlock label="Take Profit" value={setup?.takeProfit ?? 'N/A'} />
+        <PlanBlock label="Risk / Reward" value={setup?.riskReward ?? 'N/A'} />
+      </div>
+
+      {setup?.warnings && setup.warnings.length > 0 && (
+        <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-950">
+          <p className="text-xs font-bold uppercase">Warnings</p>
+          <ul className="mt-2 space-y-2">
+            {setup.warnings.slice(0, 3).map((warning, index) => (
+              <li key={`${warning}-${index}`} className="text-sm font-semibold leading-5">{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-5 grid gap-3">
+        <button
+          type="button"
+          disabled={saving || Boolean(savedEntry) || !thesis}
+          onClick={onAddToWatchlist}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+        >
+          {savedEntry ? <CheckCircle2 className="h-4 w-4" /> : <BookmarkPlus className="h-4 w-4" />}
+          {savedEntry ? 'Saved' : saving ? 'Saving...' : 'Save Setup'}
+        </button>
+        <button
+          type="button"
+          disabled={!thesis}
+          onClick={onOpenDetails}
+          className="inline-flex min-h-11 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
+        >
+          Open Details
+        </button>
+      </div>
+    </aside>
   );
 }
 
@@ -824,6 +1242,7 @@ function WatchlistCard({
   updatingStatusId,
   onRefresh,
   onUpdateStatus,
+  onOpenPaperTrade,
   onViewThesis,
 }: {
   entries: SavedWatchlistEntry[];
@@ -831,6 +1250,7 @@ function WatchlistCard({
   updatingStatusId: string | null;
   onRefresh: () => void;
   onUpdateStatus: (entryId: string, status: WatchlistStatus) => void;
+  onOpenPaperTrade: (entry: SavedWatchlistEntry) => void;
   onViewThesis: (entry: SavedWatchlistEntry) => void;
 }) {
   return (
@@ -911,7 +1331,16 @@ function WatchlistCard({
                   View Thesis
                 </button>
 
-                {(['Triggered', 'Invalidated', 'Expired'] as WatchlistStatus[]).map((status) => (
+                <button
+                  type="button"
+                  disabled={updatingStatusId === entry.id}
+                  onClick={() => onOpenPaperTrade(entry)}
+                  className="inline-flex min-h-9 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 transition hover:border-emerald-500 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:border-emerald-500"
+                >
+                  {updatingStatusId === entry.id ? 'Opening...' : 'Open Paper'}
+                </button>
+
+                {(['Invalidated', 'Expired'] as WatchlistStatus[]).map((status) => (
                   <button
                     key={status}
                     type="button"
@@ -936,10 +1365,18 @@ function WatchlistCard({
 function TradeListCard({
   entries,
   closingTradeId,
+  updatingPaperTradeId,
+  markPriceDrafts,
+  onMarkPriceChange,
+  onUpdatePaperTrade,
   onCloseTrade,
 }: {
   entries: TradeEntry[];
   closingTradeId: string | null;
+  updatingPaperTradeId: string | null;
+  markPriceDrafts: Record<string, string>;
+  onMarkPriceChange: (entryId: string, value: string) => void;
+  onUpdatePaperTrade: (entryId: string) => void;
   onCloseTrade: (entryId: string, outcome: 'Win' | 'Loss') => void;
 }) {
   return (
@@ -995,12 +1432,38 @@ function TradeListCard({
                 <MiniStat label="Current Price" value={formatCurrency(entry.currentPrice ?? undefined)} />
                 <MiniStat label="P/L $" value={formatCurrency(entry.currentProfitLoss ?? undefined)} />
                 <MiniStat label="P/L %" value={formatPercent(entry.currentProfitLossPercent)} />
-                <MiniStat label="Notes" value={entry.notes || 'N/A'} />
+                <MiniStat label="Qty" value={entry.quantity === null ? 'N/A' : String(entry.quantity)} />
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
+                <input
+                  value={markPriceDrafts[entry.id] ?? ''}
+                  onChange={(event) => onMarkPriceChange(entry.id, event.target.value)}
+                  placeholder={entry.currentPrice ? String(entry.currentPrice) : 'Mark price'}
+                  inputMode="decimal"
+                  className="min-h-10 rounded-lg border border-zinc-300 bg-white px-3 text-sm font-bold outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-emerald-500 dark:focus:ring-emerald-500/20"
+                />
+                <button
+                  type="button"
+                  disabled={updatingPaperTradeId === entry.id}
+                  onClick={() => onUpdatePaperTrade(entry.id)}
+                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
+                >
+                  {updatingPaperTradeId === entry.id ? 'Marking...' : 'Update Mark'}
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-4">
+                <MiniStat label="Stop" value={formatCurrency(entry.stopLoss ?? undefined)} />
+                <MiniStat label="Target" value={formatCurrency(entry.takeProfit ?? undefined)} />
+                <MiniStat label="Fees" value={formatCurrency(entry.fees ?? undefined)} />
+                <MiniStat label="Slippage" value={formatCurrency(entry.slippage ?? undefined)} />
               </div>
 
               <div className="mt-4 grid gap-2">
                 <DisclosureBlock label="Original Thesis" value={entry.thesis || 'No thesis saved.'} />
                 <DisclosureBlock label="Entry Trigger" value={entry.entryTrigger || 'N/A'} />
+                <DisclosureBlock label="Notes" value={entry.notes || 'N/A'} />
               </div>
             </div>
           ))
@@ -1203,8 +1666,8 @@ function Panel({ title, icon, children }: { title: string; icon: ReactNode; chil
 }
 
 function SignalRow({ signal }: { signal: SignalDetail }) {
-  const isSma = signal.type === 'SMA_TREND';
-  const icon = isSma ? <TrendingUp className="h-4 w-4" /> : signal.type === 'NEWS_SENTIMENT' ? <Sparkles className="h-4 w-4" /> : <Target className="h-4 w-4" />;
+  const isTrend = signal.type === 'VWAP_POSITION' || signal.type === 'EMA_ALIGNMENT' || signal.type === 'INTRADAY_MOMENTUM';
+  const icon = isTrend ? <TrendingUp className="h-4 w-4" /> : signal.type === 'NEWS_SENTIMENT' ? <Sparkles className="h-4 w-4" /> : <Target className="h-4 w-4" />;
 
   return (
     <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -1311,15 +1774,21 @@ function directionClass(direction?: string) {
 
 function formatSignalValue(signal: SignalDetail) {
   if (typeof signal.value === 'number') {
-    return signal.type === 'NEWS_SENTIMENT' ? String(signal.value) : `${signal.value.toFixed(2)}%`;
+    if (signal.unit === 'ratio') return `${signal.value.toFixed(2)}x`;
+    if (signal.unit === 'score') return signal.value.toFixed(2);
+    if (signal.unit === 'price') return formatCurrency(signal.value);
+    if (signal.unit === 'percent' || !signal.unit) return `${signal.value.toFixed(2)}%`;
+
+    return String(signal.value);
   }
 
   return signal.value ?? 'N/A';
 }
 
 function getTradePlan(thesis: TradingThesis, signals: SignalDetail[]): Required<TradePlan> {
-  const smaSignal = signals.find((signal) => signal.type === 'SMA_TREND');
-  const priceSignal = signals.find((signal) => signal.type === 'PRICE_CHANGE');
+  const vwapSignal = signals.find((signal) => signal.type === 'VWAP_POSITION');
+  const emaSignal = signals.find((signal) => signal.type === 'EMA_ALIGNMENT');
+  const momentumSignal = signals.find((signal) => signal.type === 'INTRADAY_MOMENTUM');
   const sentimentSignal = signals.find((signal) => signal.type === 'NEWS_SENTIMENT');
   const direction = thesis.direction?.toUpperCase() ?? 'NEUTRAL';
   const isBearish = direction.includes('BEAR');
@@ -1328,18 +1797,18 @@ function getTradePlan(thesis: TradingThesis, signals: SignalDetail[]): Required<
     entryTrigger:
       thesis.tradePlan?.entryTrigger ??
       (isBearish
-        ? 'Watch for continued downside pressure while price remains below the main trend signal.'
-        : 'Watch for price confirmation with follow-through above the current trend signal.'),
+        ? 'Watch for continued downside pressure while price remains below VWAP or short-term EMAs.'
+        : 'Watch for price confirmation with follow-through above VWAP or short-term EMAs.'),
     invalidation:
       thesis.tradePlan?.invalidation ??
       (isBearish
-        ? 'Reassess if price recovers above the 20-day SMA or headlines turn materially positive.'
-        : 'Reassess if price loses the 20-day SMA or the news/sentiment setup turns negative.'),
+        ? 'Reassess if price recovers above VWAP and momentum flips positive.'
+        : 'Reassess if price loses VWAP and intraday momentum flips negative.'),
     watchConditions:
       thesis.tradePlan?.watchConditions?.slice(0, 4) ??
       [
-        smaSignal?.interpretation ?? '20-day SMA trend remains aligned with the thesis.',
-        priceSignal?.interpretation ?? 'Price action confirms the directional call.',
+        vwapSignal?.interpretation ?? 'VWAP position remains aligned with the thesis.',
+        emaSignal?.interpretation ?? momentumSignal?.interpretation ?? 'Intraday trend confirms the directional call.',
         sentimentSignal?.interpretation ?? 'Recent headlines do not contradict the setup.',
       ],
   };

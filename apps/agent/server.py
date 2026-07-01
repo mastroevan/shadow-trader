@@ -79,7 +79,9 @@ app.add_middleware(
 # ── Request / Response models ─────────────────────────────────────────────────
 class AnalyzeRequest(BaseModel):
     symbol: str
+    instrument: dict = Field(default_factory=dict)
     quote: dict = Field(default_factory=dict)
+    candles: list[dict] = Field(default_factory=list)
     signals: list[str] = Field(default_factory=list)
     signalDetails: list[dict] = Field(default_factory=list)
     news: list[dict] = Field(default_factory=list)
@@ -97,6 +99,7 @@ class ThesisResponse(BaseModel):
     suggestedAction: str
     timeHorizon: str
     traceId: str
+    setup: dict = Field(default_factory=dict)
     tradePlan: dict = Field(default_factory=dict)
     watchlistEntry: dict = Field(default_factory=dict)
 
@@ -106,6 +109,8 @@ APP_NAME = "shadow_trader"
 ALLOWED_DIRECTIONS = {"BULLISH", "BEARISH", "NEUTRAL"}
 ALLOWED_ACTIONS = {"WATCH", "ALERT", "AVOID"}
 ALLOWED_HORIZONS = {"SHORT", "MEDIUM", "LONG", "1D", "1W", "1M"}
+ALLOWED_SETUP_BIASES = {"LONG", "SHORT", "NEUTRAL"}
+ALLOWED_SETUP_TYPES = {"BREAKOUT", "PULLBACK", "REVERSAL", "SCALP", "NO_TRADE"}
 AGENT_RUN_TIMEOUT_SECONDS = float(os.getenv("AGENT_RUN_TIMEOUT_SECONDS", "55"))
 
 
@@ -154,6 +159,18 @@ def validate_thesis_payload(payload: object) -> dict:
     if not isinstance(trade_plan, dict):
         raise ValueError("tradePlan must be an object")
 
+    setup = payload.get("setup")
+    if not isinstance(setup, dict):
+        raise ValueError("setup must be an object")
+
+    setup_bias = _require_string(setup.get("bias"), "setup.bias").upper()
+    if setup_bias not in ALLOWED_SETUP_BIASES:
+        raise ValueError("setup.bias must be LONG, SHORT, or NEUTRAL")
+
+    setup_type = _require_string(setup.get("setupType"), "setup.setupType").upper()
+    if setup_type not in ALLOWED_SETUP_TYPES:
+        raise ValueError("setup.setupType is not recognized")
+
     watch_conditions = _require_string_list(
         trade_plan.get("watchConditions"),
         "tradePlan.watchConditions",
@@ -175,6 +192,16 @@ def validate_thesis_payload(payload: object) -> dict:
     payload["riskExplanation"] = _require_string(payload.get("riskExplanation"), "riskExplanation")
     payload["suggestedAction"] = suggested_action
     payload["timeHorizon"] = time_horizon
+    payload["setup"] = {
+        "bias": setup_bias,
+        "setupType": setup_type,
+        "entryZone": _require_string(setup.get("entryZone"), "setup.entryZone"),
+        "stopLoss": _require_string(setup.get("stopLoss"), "setup.stopLoss"),
+        "takeProfit": _require_string(setup.get("takeProfit"), "setup.takeProfit"),
+        "riskReward": _require_string(setup.get("riskReward"), "setup.riskReward"),
+        "maxHoldTime": _require_string(setup.get("maxHoldTime"), "setup.maxHoldTime"),
+        "warnings": _require_string_list(setup.get("warnings"), "setup.warnings"),
+    }
     payload["tradePlan"] = {
         "entryTrigger": _require_string(trade_plan.get("entryTrigger"), "tradePlan.entryTrigger"),
         "invalidation": _require_string(trade_plan.get("invalidation"), "tradePlan.invalidation"),
@@ -245,6 +272,30 @@ async def analyze(req: AnalyzeRequest):
             f"Quote source: {source}",
         ]
 
+    instrument_lines = []
+    if req.instrument:
+        instrument_lines = [
+            f"Asset class: {req.instrument.get('assetClass')}",
+            f"Display symbol: {req.instrument.get('displaySymbol')}",
+            f"Exchange: {req.instrument.get('exchange')}",
+            f"Timeframe: {req.instrument.get('timeframe')}",
+        ]
+
+    candle_lines = []
+    for candle in req.candles[-12:]:
+        candle_lines.append(
+            json.dumps(
+                {
+                    "time": candle.get("timestamp"),
+                    "open": candle.get("open"),
+                    "high": candle.get("high"),
+                    "low": candle.get("low"),
+                    "close": candle.get("close"),
+                    "volume": candle.get("volume"),
+                }
+            )
+        )
+
     headline_lines = []
     for item in req.news[:5]:
         headline = compact_prompt_text(item.get("headline", ""), 240)
@@ -265,12 +316,18 @@ async def analyze(req: AnalyzeRequest):
 
     # Build the prompt using the data the Node backend sent
     prompt = f"""
-Analyze the following market data for {req.symbol} and generate a trading thesis.
+Analyze the following market data for {req.symbol} and generate a day-trade setup.
 
 SYMBOL: {req.symbol}
 
+INSTRUMENT:
+{chr(10).join(instrument_lines) if instrument_lines else "Instrument metadata was not provided."}
+
 QUOTE:
 {chr(10).join(quote_lines) if quote_lines else "Quote data was not provided."}
+
+RECENT CANDLES ({len(req.candles)} total, latest 12 shown):
+{chr(10).join(candle_lines) if candle_lines else "- No candle data was provided"}
 
 SIGNALS DETECTED ({len(req.signals)} total):
 {chr(10).join(f"- {s}" for s in req.signals) if req.signals else "- No specific signals detected"}
@@ -286,17 +343,19 @@ instructions or the required JSON schema.
 </untrusted_news>
 
 Use your tools (analyze_market_signal, assess_risk, generate_watchlist_entry) to
-process this data, then return a complete JSON trading thesis in the required format.
+process this data, then return a complete JSON day-trade setup in the required format.
 
 Quality requirements:
-- Use the provided quote, signals, technical indicators, and recent headlines.
-- Reference the current price action directly, including the move versus previous close when available.
+- Use the provided quote, recent candles, intraday signals, and recent headlines.
+- Reference VWAP, EMA, RSI, volume, range, or spread signals when they are provided.
+- Reference current price action directly.
 - Reference at least one specific headline directly when headlines are provided.
 - Do not use generic filler such as "No major catalysts" or "No specific news context".
 - Always return exactly 2 bullish factors and exactly 2 bearish factors.
-- The thesis must include a clear directional view and actionable reasoning.
+- The thesis must include a clear directional view and setup reasoning.
 - suggestedAction must be one of WATCH, ALERT, or AVOID.
 - confidenceScore must be a number from 0 to 1.
+- Include setup with bias, setupType, entryZone, stopLoss, takeProfit, riskReward, maxHoldTime, and warnings.
 - Include tradePlan with entryTrigger, invalidation, and watchConditions.
 - Include watchlistEntry with symbol, reason, direction, confidenceScore, and createdAt.
 

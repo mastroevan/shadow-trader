@@ -69,7 +69,7 @@ function buildWatchlistPayload(result) {
 const startedAt = new Date().toISOString();
 
 const health = await requestJson("/health");
-const analysis = await requestJson("/api/analyze", {
+const analysis = await requestJson("/api/setups/analyze", {
   method: "POST",
   body: JSON.stringify({ symbol }),
 });

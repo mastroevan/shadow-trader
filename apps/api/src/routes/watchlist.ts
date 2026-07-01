@@ -7,8 +7,10 @@ import {
   listTradeEntries,
   listWatchlistEntries,
   moveWatchlistEntry,
+  openPaperTradeEntry,
   rollbackWatchlistMove,
   type TradeEntry,
+  updatePaperTradeEntry,
   upsertWatchlistEntry,
 } from "../services/watchlist";
 import {
@@ -157,6 +159,60 @@ router.patch("/watchlist/:id/status", async (req, res) => {
   }
 
   return res.json({ entry: move.entry });
+});
+
+router.post("/watchlist/:id/paper-trade", async (req, res) => {
+  const move = await openPaperTradeEntry(req.params.id, {
+    entryPrice: parseNullableNumber(req.body.entryPrice),
+    quantity: parseNullableNumber(req.body.quantity),
+    stopLoss: parseNullableNumber(req.body.stopLoss),
+    takeProfit: parseNullableNumber(req.body.takeProfit),
+    fees: parseNullableNumber(req.body.fees),
+    slippage: parseNullableNumber(req.body.slippage),
+    notes: typeof req.body.notes === "string" ? req.body.notes : undefined,
+  });
+
+  if (!move) {
+    return res.status(404).json({
+      error: "WATCHLIST_ENTRY_NOT_FOUND",
+      message: "No watchlist entry was found for that id.",
+    });
+  }
+
+  try {
+    await moveWatchlistRowToTradeList(move.entry);
+  } catch (error) {
+    await rollbackWatchlistMove(move.entry, move.previousEntry).catch((rollbackError) => {
+      console.error("Could not roll back paper trade open:", rollbackError);
+    });
+    console.error("Could not move paper trade row in Google Sheets:", error);
+
+    return res.status(502).json({
+      error: "GOOGLE_SHEETS_SYNC_FAILED",
+      message:
+        "The paper trade could not be saved to Google Sheets. Check the API logs for details.",
+    });
+  }
+
+  return res.status(201).json({ entry: move.entry });
+});
+
+router.patch("/paper-trades/:id", async (req, res) => {
+  const entry = await updatePaperTradeEntry(req.params.id, {
+    currentPrice: parseNullableNumber(req.body.currentPrice),
+    stopLoss: parseNullableNumber(req.body.stopLoss),
+    takeProfit: parseNullableNumber(req.body.takeProfit),
+    notes: typeof req.body.notes === "string" ? req.body.notes : undefined,
+  });
+
+  if (!entry) {
+    return res.status(404).json({
+      error: "PAPER_TRADE_NOT_FOUND",
+      message: "No active paper trade was found for that id.",
+    });
+  }
+
+  return res.json({ entry });
 });
 
 router.patch("/trade-list/:id/close", async (req, res) => {
