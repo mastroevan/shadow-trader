@@ -2,6 +2,19 @@
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Line,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import {
   Activity,
   ArrowDownRight,
   ArrowUpRight,
@@ -108,12 +121,20 @@ type AnalyzeResponse = {
   quote?: Quote;
   candles?: Candle[];
   news?: NewsItem[];
+  technicals?: unknown;
   meta?: {
     symbol?: string;
     quoteSource?: string;
     candleCount?: number;
     instrument?: InstrumentMeta;
+    analyzedAt?: string;
+    refreshedAt?: string;
   };
+  error?: string;
+  message?: string;
+};
+
+type MarketSnapshotResponse = Pick<AnalyzeResponse, 'quote' | 'candles' | 'technicals' | 'meta'> & {
   error?: string;
   message?: string;
 };
@@ -215,6 +236,7 @@ type Timeframe = '1m' | '5m' | '15m' | '1h';
 
 const DEMO_INSTRUMENTS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'NVDA', 'TSLA', 'AAPL'];
 const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h'];
+const LIVE_POLL_INTERVAL_MS = 20_000;
 const CARD_CLASS = 'rounded-lg border border-zinc-200/80 bg-white/95 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95 dark:shadow-[0_18px_50px_rgba(0,0,0,0.35)]';
 const INNER_CARD_CLASS = 'rounded-lg border border-zinc-200 bg-gradient-to-br from-white to-zinc-50 p-4 shadow-sm dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950';
 const THEME_STORAGE_KEY = 'shadow-trader-theme';
@@ -246,6 +268,8 @@ export default function Home() {
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
   const [updatingPaperTradeId, setUpdatingPaperTradeId] = useState<string | null>(null);
   const [markPriceDrafts, setMarkPriceDrafts] = useState<Record<string, string>>({});
+  const [lastLiveRefresh, setLastLiveRefresh] = useState<string | null>(null);
+  const [livePolling, setLivePolling] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -265,6 +289,16 @@ export default function Home() {
     document.documentElement.classList.toggle('dark', darkMode);
     window.localStorage.setItem(THEME_STORAGE_KEY, darkMode ? 'dark' : 'light');
   }, [darkMode, themeLoaded]);
+
+  useEffect(() => {
+    if (!result?.quote || loading) return;
+
+    const interval = window.setInterval(() => {
+      void refreshMarketSnapshot();
+    }, LIVE_POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [result?.meta?.symbol, result?.meta?.instrument?.assetClass, result?.meta?.instrument?.timeframe, loading]);
 
   async function loadWorkflow() {
     setLoadingWatchlist(true);
@@ -326,12 +360,58 @@ export default function Home() {
       }
 
       setResult(data);
+      setLastLiveRefresh(data.meta?.analyzedAt ?? new Date().toISOString());
       setAnalysisModalOpen(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong.';
       setError(message === 'Failed to fetch' ? 'Could not reach the analysis API. Make sure the backend is running on port 3001.' : message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function refreshMarketSnapshot() {
+    const currentSymbol = result?.meta?.symbol ?? symbol;
+
+    if (!currentSymbol || livePolling) return;
+
+    setLivePolling(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/market/snapshot`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          symbol: currentSymbol,
+          assetClass: result?.meta?.instrument?.assetClass ?? assetClass,
+          timeframe: result?.meta?.instrument?.timeframe ?? timeframe,
+          exchange: result?.meta?.instrument?.exchange,
+        }),
+      });
+      const data = (await response.json()) as MarketSnapshotResponse;
+
+      if (!response.ok) {
+        throw new Error(data.message ?? data.error ?? `Request failed with status ${response.status}`);
+      }
+
+      setResult((current) => {
+        if (!current) return current;
+
+        return {
+          ...current,
+          quote: data.quote ?? current.quote,
+          candles: data.candles ?? current.candles,
+          meta: {
+            ...current.meta,
+            ...data.meta,
+          },
+        };
+      });
+      setLastLiveRefresh(data.meta?.refreshedAt ?? new Date().toISOString());
+    } catch {
+      // Keep the last valid setup visible when a live refresh fails.
+    } finally {
+      setLivePolling(false);
     }
   }
 
@@ -640,6 +720,9 @@ export default function Home() {
               isPositive={isPositive}
               instrument={instrument}
               loading={loading}
+              livePolling={livePolling}
+              lastLiveRefresh={lastLiveRefresh}
+              onRefresh={() => void refreshMarketSnapshot()}
             />
 
             <section className={CARD_CLASS}>
@@ -790,6 +873,9 @@ function DeskChartPanel({
   isPositive,
   instrument,
   loading,
+  livePolling,
+  lastLiveRefresh,
+  onRefresh,
 }: {
   symbol: string;
   quote?: Quote;
@@ -798,12 +884,19 @@ function DeskChartPanel({
   isPositive: boolean;
   instrument?: InstrumentMeta;
   loading: boolean;
+  livePolling: boolean;
+  lastLiveRefresh: string | null;
+  onRefresh: () => void;
 }) {
-  const visibleCandles = candles.slice(-32);
-  const prices = visibleCandles.flatMap((candle) => [candle.high, candle.low]);
-  const minPrice = prices.length ? Math.min(...prices) : 0;
-  const maxPrice = prices.length ? Math.max(...prices) : 0;
-  const priceRange = maxPrice - minPrice || 1;
+  const chartData = candles.slice(-80).map((candle) => ({
+    ...candle,
+    time: formatCandleTime(candle.timestamp),
+    direction: candle.close >= candle.open ? 'up' : 'down',
+  }));
+  const closeValues = chartData.map((candle) => candle.close);
+  const minClose = closeValues.length ? Math.min(...closeValues) : 0;
+  const maxClose = closeValues.length ? Math.max(...closeValues) : 0;
+  const padding = Math.max((maxClose - minClose) * 0.15, maxClose * 0.001, 1);
 
   return (
     <section className={CARD_CLASS}>
@@ -834,32 +927,57 @@ function DeskChartPanel({
         </div>
       </div>
 
-      <div className="mt-6 h-[320px] rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mt-6 h-[360px] rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
         {loading ? (
           <div className="h-full animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
-        ) : visibleCandles.length > 2 ? (
-          <div className="flex h-full items-end gap-1">
-            {visibleCandles.map((candle) => {
-              const top = ((maxPrice - candle.high) / priceRange) * 100;
-              const bottom = ((candle.low - minPrice) / priceRange) * 100;
-              const bodyTop = ((maxPrice - Math.max(candle.open, candle.close)) / priceRange) * 100;
-              const bodyBottom = ((Math.min(candle.open, candle.close) - minPrice) / priceRange) * 100;
-              const isUp = candle.close >= candle.open;
+        ) : chartData.length > 2 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 12, right: 16, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#d4d4d8" vertical={false} />
+              <XAxis dataKey="time" minTickGap={26} tick={{ fontSize: 11, fill: '#71717a' }} />
+              <YAxis
+                yAxisId="price"
+                orientation="right"
+                domain={[minClose - padding, maxClose + padding]}
+                tick={{ fontSize: 11, fill: '#71717a' }}
+                width={72}
+                tickFormatter={(value) => compactCurrency(Number(value))}
+              />
+              <YAxis yAxisId="volume" hide />
+              <Tooltip
+                contentStyle={{ borderRadius: 8, borderColor: '#d4d4d8', fontSize: 12 }}
+                formatter={(value, name) => {
+                  if (name === 'volume') return [Number(value).toLocaleString(), 'Volume'];
 
-              return (
-                <div key={candle.timestamp} className="relative h-full flex-1">
-                  <div
-                    className="absolute left-1/2 w-px -translate-x-1/2 bg-zinc-400 dark:bg-zinc-600"
-                    style={{ top: `${top}%`, bottom: `${bottom}%` }}
-                  />
-                  <div
-                    className={`absolute left-1/2 min-h-1 w-full max-w-[12px] -translate-x-1/2 rounded-sm ${isUp ? 'bg-emerald-500' : 'bg-red-500'}`}
-                    style={{ top: `${bodyTop}%`, bottom: `${bodyBottom}%` }}
-                  />
-                </div>
-              );
-            })}
-          </div>
+                  return [formatCurrency(Number(value)), String(name)];
+                }}
+              />
+              <Bar yAxisId="volume" dataKey="volume" barSize={5} opacity={0.28}>
+                {chartData.map((entry) => (
+                  <Cell key={`volume-${entry.timestamp}`} fill={entry.direction === 'up' ? '#10b981' : '#ef4444'} />
+                ))}
+              </Bar>
+              <Line
+                yAxisId="price"
+                type="monotone"
+                dataKey="close"
+                name="Close"
+                stroke="#059669"
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive={false}
+              />
+              {quote?.price && (
+                <ReferenceLine
+                  yAxisId="price"
+                  y={quote.price}
+                  stroke="#18181b"
+                  strokeDasharray="4 4"
+                  label={{ value: compactCurrency(quote.price), position: 'insideTopRight', fill: '#18181b', fontSize: 11 }}
+                />
+              )}
+            </ComposedChart>
+          </ResponsiveContainer>
         ) : (
           <div className="flex h-full items-center justify-center">
             <EmptyState title="No candles loaded" body="Run a setup scan to load intraday OHLCV candles for this instrument." />
@@ -867,10 +985,22 @@ function DeskChartPanel({
         )}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3 text-xs font-semibold uppercase text-zinc-500 dark:text-zinc-400">
-        <span>Source: {quote?.source ?? 'N/A'}</span>
-        <span>Candles: {candles.length}</span>
-        <span>Exchange: {instrument?.exchange ?? 'N/A'}</span>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3 text-xs font-semibold uppercase text-zinc-500 dark:text-zinc-400">
+          <span>Source: {quote?.source ?? 'N/A'}</span>
+          <span>Candles: {candles.length}</span>
+          <span>Exchange: {instrument?.exchange ?? 'N/A'}</span>
+          <span>Live: {lastLiveRefresh ? formatTime(lastLiveRefresh) : 'Waiting'}</span>
+        </div>
+        <button
+          type="button"
+          disabled={livePolling || loading || !quote}
+          onClick={onRefresh}
+          className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
+        >
+          <RefreshCw className={`h-4 w-4 ${livePolling ? 'animate-spin' : ''}`} />
+          {livePolling ? 'Refreshing' : 'Refresh'}
+        </button>
       </div>
     </section>
   );
@@ -1733,9 +1863,38 @@ function formatCurrency(value?: number) {
   }).format(value);
 }
 
+function compactCurrency(value?: number) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'N/A';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: 'compact',
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 function formatPercent(value?: number | null) {
   if (typeof value !== 'number' || Number.isNaN(value)) return 'N/A';
   return `${(value * 100).toFixed(2)}%`;
+}
+
+function formatCandleTime(timestamp: number) {
+  const date = new Date(timestamp * 1000);
+
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function formatTime(value?: string) {
+  if (!value) return 'N/A';
+
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(value));
 }
 
 function formatDate(value?: string) {

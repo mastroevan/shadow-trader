@@ -1,0 +1,75 @@
+{
+  "startedAt": "2026-07-01T06:41:04.063Z",
+  "completedAt": "2026-07-01T06:41:04.640Z",
+  "apiBaseUrl": "http://127.0.0.1:3001",
+  "symbol": "BTC/USD",
+  "health": {
+    "status": "ok",
+    "service": "shadow-trader-api"
+  },
+  "analysis": {
+    "agentStatus": "RULE_BASED_FALLBACK",
+    "traceId": "fallback-453c2a77-972a-479f-8845-08540d1e8b97",
+    "thesisRecordId": "6a00d440-41aa-4e3f-9c9b-47e084257d5b",
+    "instrument": {
+      "assetClass": "crypto",
+      "symbol": "BTC-USD",
+      "displaySymbol": "BTC/USD",
+      "baseAsset": "BTC",
+      "quoteAsset": "USD",
+      "exchange": "coinbase",
+      "timeframe": "5m"
+    },
+    "quote": {
+      "source": "coinbase-exchange",
+      "symbol": "BTC-USD",
+      "price": 58547.76,
+      "previousClose": 58523.93,
+      "timestamp": 1782888063
+    },
+    "candleCount": 350,
+    "signalTypes": [
+      "INTRADAY_MOMENTUM",
+      "VWAP_POSITION",
+      "EMA_ALIGNMENT",
+      "RSI_14",
+      "VOLUME_SPIKE",
+      "RANGE_BREAKOUT",
+      "SPREAD_LIQUIDITY",
+      "QUOTE_HEALTH"
+    ],
+    "setup": {
+      "bias": "NEUTRAL",
+      "setupType": "NO_TRADE",
+      "entryZone": "Wait for confirmation around the current price before paper-trade entry.",
+      "stopLoss": "Use the nearest intraday invalidation level from VWAP, EMA, or range structure.",
+      "takeProfit": "Target the next intraday range boundary or a minimum 1.5R paper-trade exit.",
+      "riskReward": "At least 1.5:1 preferred before tracking as an active setup.",
+      "maxHoldTime": "Intraday only; reassess before the next session or major liquidity handoff.",
+      "warnings": [
+        "Fallback setup generated without a completed AI agent response.",
+        "Confirm liquidity, spread, and candle structure before treating this as tradable."
+      ]
+    }
+  },
+  "snapshot": {
+    "quoteSource": "coinbase-exchange",
+    "candleCount": 350
+  },
+  "watchlist": {
+    "id": "9f26aa46-28bc-4a83-8eb3-66c6f3f89575",
+    "status": "Watching"
+  },
+  "paperTrade": {
+    "id": "9f26aa46-28bc-4a83-8eb3-66c6f3f89575",
+    "entryPrice": 58547.76,
+    "markedPrice": 59133.24,
+    "profitLoss": 585.4799999999959
+  },
+  "ledger": {
+    "id": "45c13622-bfb5-4b3d-830e-3cf3034fede2",
+    "recordType": "Closed Trade",
+    "outcome": "Win",
+    "profitLoss": 585.4799999999959
+  }
+}

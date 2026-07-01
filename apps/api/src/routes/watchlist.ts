@@ -29,6 +29,10 @@ import {
 
 const router = Router();
 
+function shouldSyncGoogleSheets() {
+  return process.env.SKIP_GOOGLE_SHEETS_SYNC !== "true";
+}
+
 router.get("/watchlist", async (_req, res) => {
   const entries = await listWatchlistEntries();
 
@@ -89,34 +93,36 @@ router.post("/watchlist", async (req, res) => {
     status: "Watching",
   });
 
-  try {
-    await upsertWatchlistRow({
-      dateGenerated: entry.createdAt.slice(0, 10),
-      ticker: entry.symbol,
-      thesis: normalizeSheetsDirection(entry.direction),
-      confidence: entry.confidenceScore ?? "",
-      action: entry.suggestedAction,
-      startPrice: entry.startPrice ?? "",
-      entryTrigger: entry.entryTrigger,
-      invalidation: entry.invalidation,
-      horizon: entry.timeHorizon,
-      traceId: entry.traceId ?? "",
-      status: entry.status,
-      notes: entry.watchConditions.join("; "),
-    });
-  } catch (error) {
-    // Do not report a successful save when the spreadsheet sync failed, and
-    // remove the local entry so a retry does not create a duplicate.
-    if (created) await deleteWatchlistEntry(entry.id).catch((rollbackError) => {
-      console.error("Could not roll back local watchlist entry:", rollbackError);
-    });
-    console.error("Could not append watchlist entry to Google Sheets:", error);
+  if (shouldSyncGoogleSheets()) {
+    try {
+      await upsertWatchlistRow({
+        dateGenerated: entry.createdAt.slice(0, 10),
+        ticker: entry.symbol,
+        thesis: normalizeSheetsDirection(entry.direction),
+        confidence: entry.confidenceScore ?? "",
+        action: entry.suggestedAction,
+        startPrice: entry.startPrice ?? "",
+        entryTrigger: entry.entryTrigger,
+        invalidation: entry.invalidation,
+        horizon: entry.timeHorizon,
+        traceId: entry.traceId ?? "",
+        status: entry.status,
+        notes: entry.watchConditions.join("; "),
+      });
+    } catch (error) {
+      // Do not report a successful save when the spreadsheet sync failed, and
+      // remove the local entry so a retry does not create a duplicate.
+      if (created) await deleteWatchlistEntry(entry.id).catch((rollbackError) => {
+        console.error("Could not roll back local watchlist entry:", rollbackError);
+      });
+      console.error("Could not append watchlist entry to Google Sheets:", error);
 
-    return res.status(502).json({
-      error: "GOOGLE_SHEETS_SYNC_FAILED",
-      message:
-        "The watchlist entry could not be saved to Google Sheets. Check the API logs for details.",
-    });
+      return res.status(502).json({
+        error: "GOOGLE_SHEETS_SYNC_FAILED",
+        message:
+          "The watchlist entry could not be saved to Google Sheets. Check the API logs for details.",
+      });
+    }
   }
 
   return res.status(created ? 201 : 200).json({ entry });
@@ -139,23 +145,25 @@ router.patch("/watchlist/:id/status", async (req, res) => {
     });
   }
 
-  try {
-    if (nextStatus === "Triggered") {
-      await moveWatchlistRowToTradeList(move.entry as TradeEntry);
-    } else {
-      await moveWatchlistRowToLedger(move.entry as LedgerEntry);
-    }
-  } catch (error) {
-    await rollbackWatchlistMove(move.entry, move.previousEntry).catch((rollbackError) => {
-      console.error("Could not roll back local lifecycle move:", rollbackError);
-    });
-    console.error("Could not move watchlist row in Google Sheets:", error);
+  if (shouldSyncGoogleSheets()) {
+    try {
+      if (nextStatus === "Triggered") {
+        await moveWatchlistRowToTradeList(move.entry as TradeEntry);
+      } else {
+        await moveWatchlistRowToLedger(move.entry as LedgerEntry);
+      }
+    } catch (error) {
+      await rollbackWatchlistMove(move.entry, move.previousEntry).catch((rollbackError) => {
+        console.error("Could not roll back local lifecycle move:", rollbackError);
+      });
+      console.error("Could not move watchlist row in Google Sheets:", error);
 
-    return res.status(502).json({
-      error: "GOOGLE_SHEETS_SYNC_FAILED",
-      message:
-        "The watchlist lifecycle action could not be saved to Google Sheets. Check the API logs for details.",
-    });
+      return res.status(502).json({
+        error: "GOOGLE_SHEETS_SYNC_FAILED",
+        message:
+          "The watchlist lifecycle action could not be saved to Google Sheets. Check the API logs for details.",
+      });
+    }
   }
 
   return res.json({ entry: move.entry });
@@ -179,19 +187,21 @@ router.post("/watchlist/:id/paper-trade", async (req, res) => {
     });
   }
 
-  try {
-    await moveWatchlistRowToTradeList(move.entry);
-  } catch (error) {
-    await rollbackWatchlistMove(move.entry, move.previousEntry).catch((rollbackError) => {
-      console.error("Could not roll back paper trade open:", rollbackError);
-    });
-    console.error("Could not move paper trade row in Google Sheets:", error);
+  if (shouldSyncGoogleSheets()) {
+    try {
+      await moveWatchlistRowToTradeList(move.entry);
+    } catch (error) {
+      await rollbackWatchlistMove(move.entry, move.previousEntry).catch((rollbackError) => {
+        console.error("Could not roll back paper trade open:", rollbackError);
+      });
+      console.error("Could not move paper trade row in Google Sheets:", error);
 
-    return res.status(502).json({
-      error: "GOOGLE_SHEETS_SYNC_FAILED",
-      message:
-        "The paper trade could not be saved to Google Sheets. Check the API logs for details.",
-    });
+      return res.status(502).json({
+        error: "GOOGLE_SHEETS_SYNC_FAILED",
+        message:
+          "The paper trade could not be saved to Google Sheets. Check the API logs for details.",
+      });
+    }
   }
 
   return res.status(201).json({ entry: move.entry });
@@ -237,16 +247,18 @@ router.patch("/trade-list/:id/close", async (req, res) => {
     });
   }
 
-  try {
-    await appendClosedTradeToLedger(entry);
-  } catch (error) {
-    console.error("Could not append closed trade to Google Sheets:", error);
+  if (shouldSyncGoogleSheets()) {
+    try {
+      await appendClosedTradeToLedger(entry);
+    } catch (error) {
+      console.error("Could not append closed trade to Google Sheets:", error);
 
-    return res.status(502).json({
-      error: "GOOGLE_SHEETS_SYNC_FAILED",
-      message:
-        "The closed trade could not be saved to Google Sheets. Check the API logs for details.",
-    });
+      return res.status(502).json({
+        error: "GOOGLE_SHEETS_SYNC_FAILED",
+        message:
+          "The closed trade could not be saved to Google Sheets. Check the API logs for details.",
+      });
+    }
   }
 
   return res.json({ entry });

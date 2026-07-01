@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "proof:e2e": "node scripts/e2e_proof.mjs"
+    "proof:e2e": "node scripts/e2e_proof.mjs",
+    "proof:e2e:btc": "node scripts/e2e_btc_proof.mjs"
   },
   "dependencies": {
     "@arizeai/openinference-semantic-conventions": "^2.3.0",
