@@ -7,8 +7,6 @@ export const WATCHLIST_STATUSES = [
 
 export type WatchlistStatus = (typeof WATCHLIST_STATUSES)[number];
 
-const SHEETS_DIRECTIONS = new Set(["BEARISH", "BULLISH", "NEUTRAL"]);
-
 export function parseNullableNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -23,13 +21,7 @@ export function parseNullableNumber(value: unknown): number | null {
   return null;
 }
 
-export function normalizeSheetsDirection(value: unknown): string {
-  const direction = String(value ?? "").trim().toUpperCase();
-
-  return SHEETS_DIRECTIONS.has(direction) ? direction : "NEUTRAL";
-}
-
-export function normalizeSheetsHorizon(value: unknown): string {
+export function normalizeTimeHorizon(value: unknown): string {
   const horizon = String(value ?? "").trim().toUpperCase();
 
   if (horizon === "SHORT" || horizon === "1D") return "SHORT";

@@ -95,11 +95,11 @@ assert(
 );
 assert(
   ["SHORT", "MEDIUM", "1W"].includes(watchlist.entry?.timeHorizon),
-  "Watchlist entry did not preserve a Sheets-compatible horizon."
+  "Watchlist entry did not preserve an expected horizon."
 );
 assert(
   watchlist.entry?.status === "Watching",
-  "Watchlist entry did not use the expected Sheets status."
+  "Watchlist entry did not use the expected status."
 );
 
 const proof = {

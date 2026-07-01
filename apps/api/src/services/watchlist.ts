@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import {
-  normalizeSheetsHorizon,
+  normalizeTimeHorizon,
   normalizeWatchlistStatus,
   type WatchlistStatus,
 } from "./watchlistFields";
@@ -413,7 +413,7 @@ function normalizeStoredEntry(entry: WatchlistEntry): WatchlistEntry {
           url: typeof item?.url === "string" ? item.url : undefined,
         }))
       : [],
-    timeHorizon: normalizeSheetsHorizon(entry.timeHorizon),
+    timeHorizon: normalizeTimeHorizon(entry.timeHorizon),
     status: normalizeWatchlistStatus(entry.status),
     createdAt,
     updatedAt: entry.updatedAt ?? createdAt,

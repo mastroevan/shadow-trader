@@ -1,23 +1,43 @@
-# Using Shadow Trader
+# Using and Testing Shadow Trader
 
-Shadow Trader is a local AI market research app. It turns a ticker symbol into an evidence-backed market thesis, then saves that thesis as a trackable record in the Trust Ledger.
+Shadow Trader is a local AI market research app. It turns a ticker or crypto pair into an evidence-backed thesis, stores the thesis in the Trust Ledger, and can move setups through a watchlist, paper trade, and closed-trade ledger workflow.
+
+This document is both the user guide and the test guide. If a feature is important enough to demo, there is a matching way to verify it.
 
 ## Prerequisites
 
-- Node.js installed
-- Python 3 installed
-- App dependencies installed for `apps/web`, `apps/api`, and `apps/agent`
-- Environment variables configured from `.env.example`
+- Node.js and npm
+- Python 3
+- Dependencies installed for `apps/web`, `apps/api`, and `apps/agent`
+- Environment variables copied from `.env.example` into `.env`
 
-Required keys for a full analysis:
+Required for full AI analysis:
 
 - `FINNHUB_API_KEY`
 - `GOOGLE_API_KEY` or the configured Vertex/Gemini environment
 
-Optional:
+Optional integrations:
 
 - `ARIZE_API_KEY`
 - `ARIZE_SPACE_KEY`
+- `SHADOW_TRADER_API_KEY`
+
+## Install
+
+From the repo root:
+
+```bash
+cd apps/web && npm install
+cd ../api && npm install
+cd ../agent && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+```
+
+If the API fails at runtime with a `better-sqlite3` Node ABI error after changing Node versions, rebuild the native dependency:
+
+```bash
+cd apps/api
+npm rebuild better-sqlite3
+```
 
 ## Run Locally
 
@@ -33,8 +53,14 @@ uvicorn server:app --reload --port 8000
 
 Health check:
 
-```text
-http://localhost:8000/health
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Expected response includes:
+
+```json
+{"agent":"shadow_trader"}
 ```
 
 ### 2. Node API
@@ -46,8 +72,14 @@ npm run dev
 
 Health check:
 
-```text
-http://localhost:3001/health
+```bash
+curl http://127.0.0.1:3001/health
+```
+
+Expected response:
+
+```json
+{"status":"ok","service":"shadow-trader-api"}
 ```
 
 ### 3. Web App
@@ -63,148 +95,173 @@ Open:
 http://localhost:3000
 ```
 
-## Basic App Flow
+## Use the App
 
-1. Open the web app at `http://localhost:3000`.
-2. Enter a ticker such as `NVDA`, `AAPL`, `TSLA`, `META`, or `AMZN`.
-3. Click `Analyze`.
-4. Review the quote, thesis, signals, headlines, action plan, bullish factors, bearish factors, and risk explanation.
-5. Optionally click `Add to Watchlist` to save the action plan.
+1. Open `http://localhost:3000`.
+2. Enter a stock ticker such as `NVDA`, `AAPL`, `TSLA`, `META`, or `AMZN`, or a crypto pair such as `BTC/USD`.
+3. Select the asset class and timeframe when needed.
+4. Click `Analyze`.
+5. Review the quote, thesis, signals, setup, risk explanation, bullish factors, bearish factors, and headlines when the provider returns news.
+6. Review the `Trust Ledger` card for the thesis record ID, generated time, expiration time, start price, evidence counts, and lifecycle status.
+7. Click `Add to Watchlist` to save the setup.
+8. Move a saved setup through the lifecycle:
+   - Keep it as `Watching` while monitoring.
+   - Open a paper trade when the setup triggers.
+   - Update the mark price to calculate current P/L.
+   - Close the paper trade as `Win` or `Loss` to move it to the ledger.
 
-## Phase 1 Trust: What It Does
+## What to Verify Manually
 
-Phase 1 Trust makes every analysis auditable.
+Use this checklist when testing through the UI:
 
-When you analyze a ticker, the backend now creates a persistent thesis record containing:
+- The web app loads at `http://localhost:3000`.
+- `Analyze` returns an AI thesis with `agentStatus` equal to `AI_AGENT`.
+- The quote has a positive price and a visible source.
+- The signal list includes intraday indicators such as momentum, VWAP position, EMA alignment, RSI, and quote health.
+- The Trust Ledger appears after analysis and shows a persisted thesis record.
+- `Add to Watchlist` saves the setup to the database.
+- Paper trade open, mark-price update, and close-to-ledger actions work from the saved watchlist entry.
 
-- Thesis record ID
-- Symbol
-- Direction
-- Suggested action
-- Confidence score
-- Initial price
-- Generated timestamp
-- Expiration timestamp
-- Trace ID
-- Quote snapshot
-- Signal snapshot
-- Technical indicator snapshot
-- News/headline snapshot
-- Lifecycle status
-- Optional outcome
+## Automated Tests
 
-This is the product's trust layer: the AI thesis is tied to the evidence available when the thesis was generated.
+Run the API unit tests:
 
-## Using The Trust Ledger
-
-After an analysis completes, the page shows a `Trust Ledger` card.
-
-Use it to inspect:
-
-- `Record`: short thesis record ID
-- `Generated`: when the thesis was created
-- `Expires`: when the thesis should be reviewed
-- `Start Price`: price at thesis creation
-- `Signals`: number of signals captured
-- `Headlines`: number of news items captured
-- `SMA`: captured 20-day moving average, when available
-- `Status`: current lifecycle state
-
-The Trust Ledger is meant to answer:
-
-- What did the AI say?
-- What evidence did it use?
-- When was the thesis created?
-- What price was the stock at?
-- Is the thesis still active, invalidated, expired, or resolved?
-
-## Marking Thesis Outcomes
-
-The Trust Ledger includes outcome buttons:
-
-- `Mark triggered`
-- `Mark invalidated`
-- `Mark expired`
-- `Mark resolved`
-
-Use these when reviewing a thesis later.
-
-Suggested meanings:
-
-- `TRIGGERED`: the thesis setup activated or the watched condition occurred.
-- `INVALIDATED`: the thesis no longer holds because price action, news, or signals contradicted it.
-- `EXPIRED`: the thesis reached its review window without a clear trigger.
-- `RESOLVED`: the thesis has been manually reviewed and closed.
-
-When you mark an outcome, the API stores:
-
-- final status
-- resolved timestamp
-- current quote price as final price
-- a short note from the workspace
-
-## Recent Thesis Records
-
-The `Recent Thesis Records` card shows the latest saved thesis records.
-
-Use this to confirm that analyses are being persisted and to quickly see recent:
-
-- symbols
-- directions
-- statuses
-- generation times
-
-## Local Data Storage
-
-Trust records and watchlist entries are stored locally by the API service under:
-
-```text
-apps/api/data/
+```bash
+cd apps/api
+npm test
 ```
 
-This directory is runtime data and is ignored by git.
+Run the API production build:
 
-Deleting it will not break the app, but it will remove local saved thesis/watchlist history. The app recreates it when new records are saved.
-
-## API Endpoints
-
-Main analysis endpoint:
-
-```text
-POST /api/setups/analyze
+```bash
+cd apps/api
+npm run build
 ```
 
-Thesis trust endpoints:
+Run the web production build:
 
-```text
-GET /api/theses
-GET /api/theses/:id
-PATCH /api/theses/:id/outcome
+```bash
+cd apps/web
+npm run build
 ```
 
-Watchlist endpoints:
+Run the stock proof against the API on port 3001:
 
-```text
-GET /api/watchlist
-POST /api/watchlist
-DELETE /api/watchlist/:id
+```bash
+cd /path/to/shadow-trader
+npm run proof:e2e
 ```
 
-## Optional API Key Protection
+Run the BTC proof against the API on port 3001:
 
-If `SHADOW_TRADER_API_KEY` is set on the API, all `/api/*` routes require:
-
-```text
-Authorization: Bearer <key>
+```bash
+cd /path/to/shadow-trader
+npm run proof:e2e:btc
 ```
 
-For the web app to call the protected API, set:
+The BTC proof validates:
 
-```text
-NEXT_PUBLIC_SHADOW_TRADER_API_KEY=<same key>
+- API health
+- Crypto instrument normalization from `BTC/USD` to `BTC-USD`
+- Coinbase quote and candle retrieval
+- Signal generation
+- AI setup generation
+- Market snapshot polling
+- Watchlist save
+- Paper trade open
+- Mark-price P/L update
+- Close-to-ledger workflow
+
+## Isolated Local E2E Test
+
+For repeatable local testing without touching the normal local database, run a second API instance on a different port with an isolated SQLite database:
+
+```bash
+cd apps/api
+set -a; source ../../.env; set +a
+PORT=3003 \
+SHADOW_TRADER_SKIP_LEGACY_IMPORT=true \
+DATABASE_URL=file:/private/tmp/shadow-trader-db-only-test.db \
+npm run dev
 ```
 
-For local development, leaving these blank keeps the app easy to run.
+Then run the BTC proof against that isolated API:
+
+```bash
+cd /path/to/shadow-trader
+API_BASE_URL=http://127.0.0.1:3003 npm run proof:e2e:btc
+```
+
+This is the recommended local e2e test when you want disposable database state.
+
+## API Smoke Tests
+
+Analyze a stock:
+
+```bash
+curl -s -X POST http://127.0.0.1:3001/api/setups/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"symbol":"NVDA"}'
+```
+
+Analyze BTC:
+
+```bash
+curl -s -X POST http://127.0.0.1:3001/api/setups/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"symbol":"BTC/USD","assetClass":"crypto","timeframe":"5m"}'
+```
+
+Poll a market snapshot:
+
+```bash
+curl -s -X POST http://127.0.0.1:3001/api/market/snapshot \
+  -H 'Content-Type: application/json' \
+  -d '{"symbol":"BTC/USD","assetClass":"crypto","timeframe":"5m"}'
+```
+
+List saved records:
+
+```bash
+curl http://127.0.0.1:3001/api/theses
+curl http://127.0.0.1:3001/api/watchlist
+curl http://127.0.0.1:3001/api/trade-list
+curl http://127.0.0.1:3001/api/trust-ledger
+```
+
+If `SHADOW_TRADER_API_KEY` is set, include:
+
+```bash
+-H "Authorization: Bearer <key>"
+```
+
+## Current Test Results
+
+Last verified locally on 2026-07-01:
+
+- `cd apps/api && npm test`: passed, 5 tests.
+- `cd apps/api && npm run build`: passed.
+- `cd apps/web && npm run build`: passed.
+- API health on `127.0.0.1:3001`: passed.
+- Agent health on `127.0.0.1:8000`: passed.
+- Web HTTP check on `127.0.0.1:3000`: passed.
+- `API_BASE_URL=http://127.0.0.1:3003 npm run proof:e2e:btc` with isolated database-only API: passed.
+
+Observed during the same run:
+
+- `npm run proof:e2e` reached analysis, but the current provider path returned `yahoo-chart-api` instead of the proof script's expected `finnhub` source. The app still returned an AI thesis, persisted a thesis record, and produced signals.
+- Watchlist, paper trade, and ledger state now rely on the database only.
+- The in-app browser automation tool was unavailable in this environment, so UI validation was limited to web HTTP availability plus API/e2e coverage.
+
+## Data Storage
+
+Trust records, watchlist entries, active paper trades, and ledger entries are stored by the API in SQLite through Prisma. For isolated tests, use a temporary `DATABASE_URL` under `/private/tmp` or another disposable path.
+
+The app also has legacy local data import behavior. For clean isolated tests, set:
+
+```bash
+SHADOW_TRADER_SKIP_LEGACY_IMPORT=true
+```
 
 ## Troubleshooting
 
@@ -212,13 +269,15 @@ If analysis fails:
 
 - Confirm the API is running on `http://localhost:3001`.
 - Confirm the agent is running on `http://localhost:8000`.
-- Confirm `FINNHUB_API_KEY` is set.
-- Confirm Gemini/Vertex credentials are set for the agent.
-- Check the API terminal for provider or agent errors.
+- Confirm market-data keys are present in `.env`.
+- Confirm Gemini credentials are present for the agent.
+- Check the API terminal for provider, Prisma, or agent errors.
 - Check the agent terminal for Gemini or JSON validation errors.
 
 If the Trust Ledger does not appear:
 
-- Make sure the analysis request completed successfully.
-- Make sure the API can write to `apps/api/data/`.
+- Make sure analysis completed successfully.
 - Check `GET http://localhost:3001/api/theses`.
+- Check for Prisma or SQLite errors in the API terminal.
+
+If proof scripts cannot connect to `127.0.0.1` from a sandboxed environment, rerun them with permission to access the local API.
