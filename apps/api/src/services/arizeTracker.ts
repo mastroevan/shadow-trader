@@ -15,7 +15,7 @@ export async function traceAgentCall<T extends { traceId?: string }>(
       span.setAttributes({
         'shadow_trader.operation': operationName,
         'shadow_trader.symbol': (input.symbol as string) ?? 'unknown',
-        'shadow_trader.agent_service': 'python-adk',
+        'shadow_trader.agent_service': 'python-openai-langgraph',
         'arize.trace_id': traceId,
       });
 

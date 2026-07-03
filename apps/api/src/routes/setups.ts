@@ -14,7 +14,7 @@ const router = Router();
 
 const AGENT_URL =
   process.env.AGENT_URL ?? "http://localhost:8000/analyze";
-const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 65000);
+const AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 95000);
 
 router.post("/market/snapshot", async (req, res) => {
   try {
@@ -137,7 +137,7 @@ router.post("/setups/analyze", async (req, res) => {
       news_context: newsSignals.join("\n"),
     };
 
-    const { thesis, traceId, agentStatus } = await getAgentThesis({
+    const { thesis, traceId, agentStatus, agentFailure } = await getAgentThesis({
       symbol,
       instrument,
       quote,
@@ -174,6 +174,7 @@ router.post("/setups/analyze", async (req, res) => {
       thesisRecord,
       thesisRecordId: thesisRecord.id,
       agentStatus,
+      agentFailure,
       quote,
       candles,
       signals: signalStrings,
@@ -218,6 +219,10 @@ async function getAgentThesis(input: AgentThesisInput): Promise<{
   thesis: Record<string, unknown>;
   traceId: string;
   agentStatus: "AI_AGENT" | "RULE_BASED_FALLBACK";
+  agentFailure?: {
+    reason: string;
+    message: string;
+  };
 }> {
   try {
     const { result: thesis, traceId } = await traceAgentCall(
@@ -268,11 +273,13 @@ async function getAgentThesis(input: AgentThesisInput): Promise<{
     console.warn("Agent thesis failed; using rule-based fallback:", error);
 
     const traceId = `fallback-${randomUUID()}`;
+    const agentFailure = describeAgentFailure(error);
 
     return {
       thesis: buildFallbackThesis(input, traceId),
       traceId,
       agentStatus: "RULE_BASED_FALLBACK",
+      agentFailure,
     };
   }
 }
@@ -280,7 +287,57 @@ async function getAgentThesis(input: AgentThesisInput): Promise<{
 function getSafeAgentTimeout() {
   return Number.isFinite(AGENT_TIMEOUT_MS) && AGENT_TIMEOUT_MS >= 5000
     ? AGENT_TIMEOUT_MS
-    : 20000;
+    : 95000;
+}
+
+function describeAgentFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes("timed out") || lowerMessage.includes("timeout")) {
+    return {
+      reason: "TIMEOUT",
+      message,
+    };
+  }
+
+  if (lowerMessage.includes("econnrefused") || lowerMessage.includes("failed to fetch")) {
+    return {
+      reason: "AGENT_UNREACHABLE",
+      message,
+    };
+  }
+
+  if (lowerMessage.includes("api key") || lowerMessage.includes("credential")) {
+    return {
+      reason: "AGENT_CONFIG",
+      message,
+    };
+  }
+
+  if (
+    lowerMessage.includes("resource_exhausted") ||
+    lowerMessage.includes("quota") ||
+    lowerMessage.includes("prepayment credits") ||
+    lowerMessage.includes("billing")
+  ) {
+    return {
+      reason: "AGENT_QUOTA",
+      message,
+    };
+  }
+
+  if (lowerMessage.includes("non-json") || lowerMessage.includes("invalid thesis payload")) {
+    return {
+      reason: "INVALID_AGENT_RESPONSE",
+      message,
+    };
+  }
+
+  return {
+    reason: "AGENT_ERROR",
+    message,
+  };
 }
 
 function buildFallbackThesis(input: AgentThesisInput, traceId: string) {

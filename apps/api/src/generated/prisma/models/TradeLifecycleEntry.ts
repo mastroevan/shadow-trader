@@ -1084,6 +1084,7 @@ export type TradeLifecycleEntryCreateManyArgs<ExtArgs extends runtime.Types.Exte
    * The data used to create many TradeLifecycleEntries.
    */
   data: Prisma.TradeLifecycleEntryCreateManyInput | Prisma.TradeLifecycleEntryCreateManyInput[]
+  skipDuplicates?: boolean
 }
 
 /**
@@ -1102,6 +1103,7 @@ export type TradeLifecycleEntryCreateManyAndReturnArgs<ExtArgs extends runtime.T
    * The data used to create many TradeLifecycleEntries.
    */
   data: Prisma.TradeLifecycleEntryCreateManyInput | Prisma.TradeLifecycleEntryCreateManyInput[]
+  skipDuplicates?: boolean
 }
 
 /**

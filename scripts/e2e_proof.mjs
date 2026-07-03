@@ -75,7 +75,7 @@ const analysis = await requestJson("/api/setups/analyze", {
 });
 
 assert(health.status === "ok", "API health check did not return ok.");
-assert(analysis.agentStatus === "AI_AGENT", "Gemini agent did not complete; fallback was used.");
+assert(analysis.agentStatus === "AI_AGENT", "AI agent did not complete; fallback was used.");
 assert(analysis.quote?.source === "finnhub", "Quote source was not Finnhub.");
 assert(Number(analysis.quote?.price) > 0, "Quote price was not populated.");
 assert(Array.isArray(analysis.news) && analysis.news.length > 0, "No news headlines were returned.");

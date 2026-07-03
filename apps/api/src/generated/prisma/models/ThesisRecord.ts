@@ -1016,6 +1016,7 @@ export type ThesisRecordCreateManyArgs<ExtArgs extends runtime.Types.Extensions.
    * The data used to create many ThesisRecords.
    */
   data: Prisma.ThesisRecordCreateManyInput | Prisma.ThesisRecordCreateManyInput[]
+  skipDuplicates?: boolean
 }
 
 /**
@@ -1034,6 +1035,7 @@ export type ThesisRecordCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Ex
    * The data used to create many ThesisRecords.
    */
   data: Prisma.ThesisRecordCreateManyInput | Prisma.ThesisRecordCreateManyInput[]
+  skipDuplicates?: boolean
 }
 
 /**

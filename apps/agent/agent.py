@@ -1,143 +1,162 @@
 import os
+from typing import Annotated, TypedDict
+import operator
 
-from google.adk.agents.llm_agent import Agent
-from tools import analyze_market_signal, assess_risk, generate_watchlist_entry
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
+from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-pro"
+try:
+    from apps.agent.tools.market_data import get_market_data
+    from apps.agent.tools.technicals import get_technical_analysis
+    from apps.agent.tools.news import get_company_news
+except ModuleNotFoundError:
+    from tools.market_data import get_market_data
+    from tools.technicals import get_technical_analysis
+    from tools.news import get_company_news
 
-SHADOW_TRADER_PROMPT = """
-You are Shadow Trader, an autonomous intraday market setup agent.
+load_dotenv()
 
-Your responsibilities:
 
-1. Analyze stock and crypto day-trading signals:
+class AgentState(TypedDict):
+    messages: Annotated[list[AnyMessage], operator.add]
 
-- unusual volume
 
-- intraday momentum
+tools = [
+    get_market_data,
+    get_technical_analysis,
+    get_company_news,
+]
 
-- VWAP position
 
-- EMA 9/20 alignment
+SYSTEM_PROMPT = """
+You are Shadow Trader's OpenAI/LangGraph trading analysis agent.
 
-- RSI state
+Your job is to analyze stocks and crypto assets for short-term trading setups.
 
-- range breaks
+You have access to:
+- Market data
+- Technical analysis
+- Company news if configured
 
-- bid/ask spread and liquidity
+Use tools when the user only provides a ticker or asks you to look up fresh
+market context. When the user provides a structured market payload, treat that
+payload as the primary source of truth and use tools only if they add useful
+context.
 
-2. Generate an explainable day-trade setup.
+When the user asks for JSON, return only valid JSON that matches the requested
+schema. Do not wrap JSON in markdown.
 
-3. Assign a confidence score from 0.0 to 1.0.
+For standalone text questions, return this format:
+Ticker:
+Direction: BULLISH, BEARISH, or NEUTRAL
+Confidence: 0-100
 
-4. Identify:
+Thesis:
+2-4 direct sentences explaining the setup.
 
-- bullish factors
+Key Levels:
+- Support:
+- Resistance:
+- 20-day SMA:
+- 50-day SMA:
 
-- bearish factors
+Catalysts / News:
+- Mention relevant news if available.
+- If no news tool data is available, say so briefly.
 
-- risks
+Suggested Action:
+Give a practical watchlist-style action, not a guaranteed buy/sell instruction.
 
-- uncertainty
+Risk Notes:
+Mention invalidation level, volatility, and that this is not financial advice.
 
-5. Recommend ONLY:
-
-- WATCH
-
-- ALERT
-
-- AVOID
-
-6. Classify setup bias ONLY:
-
-- LONG
-
-- SHORT
-
-- NEUTRAL
-
-7. Classify setup type ONLY:
-
-- BREAKOUT
-
-- PULLBACK
-
-- REVERSAL
-
-- SCALP
-
-- NO_TRADE
-
-IMPORTANT RULES:
-
-- Never recommend buying or selling securities.
-
-- Never provide financial advice or live execution instructions.
-
-- Be transparent about uncertainty.
-
-- Use evidence-based reasoning.
-
-- Keep responses concise, risk-aware, and data-focused.
-
-- Treat every output as a paper-trading setup candidate unless explicitly marked NO_TRADE.
-
-Always respond in VALID JSON.
-
-Required JSON format:
-
-{
-
-  "symbol": "string",
-
-  "direction": "BULLISH | BEARISH | NEUTRAL",
-
-  "thesis": "string",
-
-  "confidenceScore": 0.0,
-
-  "bullishFactors": [],
-
-  "bearishFactors": [],
-
-  "riskExplanation": "string",
-
-  "suggestedAction": "WATCH | ALERT | AVOID",
-
-  "timeHorizon": "SHORT | MEDIUM | LONG",
-
-  "setup": {
-    "bias": "LONG | SHORT | NEUTRAL",
-    "setupType": "BREAKOUT | PULLBACK | REVERSAL | SCALP | NO_TRADE",
-    "entryZone": "string",
-    "stopLoss": "string",
-    "takeProfit": "string",
-    "riskReward": "string",
-    "maxHoldTime": "string",
-    "warnings": []
-  },
-
-  "tradePlan": {
-    "entryTrigger": "string",
-    "invalidation": "string",
-    "watchConditions": []
-  },
-
-  "watchlistEntry": {
-    "symbol": "string",
-    "reason": "string",
-    "direction": "BULLISH | BEARISH | NEUTRAL",
-    "confidenceScore": 0.0,
-    "createdAt": "string"
-  }
-
-}
-
+Rules:
+- Do not guarantee profits.
+- Do not tell the user they must buy, sell, or short.
+- Be direct, practical, and trading-focused.
+- If data is delayed or incomplete, say that clearly.
 """
-root_agent = Agent(
-    model=os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
-    name='shadow_trader_agent',
-    description='AI-powered market intelligence and signal analysis agent.',
-    instruction=SHADOW_TRADER_PROMPT,
-    tools=[analyze_market_signal, assess_risk, generate_watchlist_entry],
-)
+
+
+def get_selected_model() -> tuple[str, str]:
+    mode = os.getenv("SHADOW_TRADER_MODE", "fast").lower()
+
+    if mode == "deep":
+        selected_model = os.getenv("OPENAI_MODEL_DEEP", "gpt-5.5")
+    else:
+        selected_model = os.getenv("OPENAI_MODEL_FAST", "gpt-5.4-mini")
+
+    return mode, selected_model
+
+
+def build_agent():
+    mode, selected_model = get_selected_model()
+    print(f"Using OpenAI model: {selected_model} ({mode} mode)")
+
+    model = ChatOpenAI(
+        model=selected_model,
+        temperature=0,
+    )
+
+    model_with_tools = model.bind_tools(tools)
+
+    def call_model(state: AgentState):
+        response = model_with_tools.invoke(
+            [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
+        )
+
+        return {"messages": [response]}
+
+    workflow = StateGraph(AgentState)
+
+    workflow.add_node("agent", call_model)
+    workflow.add_node("tools", ToolNode(tools))
+
+    workflow.add_edge(START, "agent")
+    workflow.add_conditional_edges(
+        "agent",
+        should_continue,
+        {
+            "tools": "tools",
+            END: END,
+        },
+    )
+    workflow.add_edge("tools", "agent")
+
+    return workflow.compile()
+
+
+def should_continue(state: AgentState):
+    last_message = state["messages"][-1]
+
+    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        return "tools"
+
+    return END
+
+
+def analyze(question: str) -> str:
+    agent = build_agent()
+    result = agent.invoke(
+        {
+            "messages": [
+                HumanMessage(content=question)
+            ]
+        }
+    )
+
+    return result["messages"][-1].content
+
+
+if __name__ == "__main__":
+    user_input = input("Ticker/question: ")
+
+    print("\nAnalyzing...\n")
+
+    response = analyze(user_input)
+
+    print("--- Shadow Trader Agent Response ---\n")
+    print(response)

@@ -6,16 +6,16 @@ Focus area: **Financial Services**
 
 Observability: **Arize**
 
-Arize/OpenTelemetry traces make each Gemini agent run inspectable and debuggable. The trace id is returned in the UI and can be used to inspect the agent run in Arize.
+Arize/OpenTelemetry traces make each AI agent run inspectable and debuggable. The trace id is returned in the UI and can be used to inspect the agent run in Arize.
 
 ## What It Does
 
 - Fetches live quote and recent company news from Finnhub.
 - Adds technical context with a 20-day SMA trend signal.
-- Sends quote, signals, and headlines to a Gemini-powered Python ADK agent.
+- Sends quote, signals, and headlines to an OpenAI/LangGraph Python agent.
 - Produces a structured thesis with exactly two bullish and two bearish factors.
 - Generates an actionable watchlist plan with trigger, invalidation, and watch conditions.
-- Saves the plan to a local watchlist through the Node API.
+- Saves watchlist, paper-trade, ledger, and thesis records through the Node API.
 - Emits Arize-compatible trace metadata for agent observability.
 
 ## Architecture
@@ -25,11 +25,11 @@ flowchart LR
   UI["Next.js UI"] --> API["Node API"]
   API --> Finnhub["Finnhub quote/news"]
   API --> Yahoo["Yahoo chart data"]
-  API --> Agent["Python ADK agent"]
-  Agent --> Gemini["Gemini model"]
+  API --> Agent["Python OpenAI/LangGraph agent"]
+  Agent --> OpenAI["OpenAI model"]
   Agent --> Arize["Arize traces"]
-  API --> Watchlist["Local watchlist store"]
-  UI --> Watchlist
+  API --> Postgres["PostgreSQL via Prisma"]
+  UI --> Postgres
 ```
 
 ## Demo Flow
@@ -57,6 +57,14 @@ cd ../api && npm install
 cd ../agent && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 ```
 
+Create a local Postgres database, then run Prisma migrations:
+
+```bash
+createdb shadow_trader
+cd apps/api
+npx prisma migrate dev
+```
+
 Run the services in three terminals:
 
 ```bash
@@ -81,16 +89,22 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Required:
 
+- `DATABASE_URL`
 - `FINNHUB_API_KEY`
-- `GOOGLE_API_KEY`
-- `GEMINI_MODEL` defaults to `gemini-2.5-pro`
-- `ARIZE_API_KEY`
-- `ARIZE_SPACE_KEY`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL_FAST` defaults to `gpt-5.4-mini`
+- `OPENAI_MODEL_DEEP` defaults to `gpt-5.5`
 
 Optional:
 
 - `AGENT_URL`
+- `AGENT_TIMEOUT_MS`
+- `ARIZE_API_KEY`
+- `ARIZE_SPACE_KEY`
 - `NEXT_PUBLIC_FRONTEND_URL`
+- `NEXT_PUBLIC_API_URL`
+- `SHADOW_TRADER_API_KEY`
+- `NEXT_PUBLIC_SHADOW_TRADER_API_KEY`
 - `PORT`
 
 ## Deployment
@@ -104,12 +118,10 @@ This repo includes a Render Blueprint at `render.yaml` plus Dockerfiles for the 
 With all three services running, execute:
 
 ```bash
-npm run proof:e2e -- --write
+npm run proof:e2e:btc -- --write
 ```
 
-The script runs `NVDA`, requires a real Gemini agent response, confirms Finnhub quote/news data, saves the watchlist entry, and writes sanitized proof to `docs/proof/latest-e2e-proof.json`.
-
-Latest local proof summary: [docs/proof/phase-9-10-live-proof.md](docs/proof/phase-9-10-live-proof.md)
+The script runs `BTC/USD`, requires a real AI agent response, confirms Coinbase quote/candle data, saves the watchlist entry, opens and closes a paper trade, and can write a local proof JSON when `-- --write` is included.
 
 ## Project Notes
 
@@ -120,4 +132,4 @@ Latest local proof summary: [docs/proof/phase-9-10-live-proof.md](docs/proof/pha
 
 ## Arize / Agent Builder
 
-Connect the same Arize project to the Arize MCP server in Google Cloud Agent Builder to inspect agent runs, compare thesis quality, and debug failures. The app already sends ADK traces to Arize through OpenTelemetry when `ARIZE_API_KEY` and `ARIZE_SPACE_KEY` are configured.
+Connect the same Arize project to your observability workflow to inspect agent runs, compare thesis quality, and debug failures. The app sends agent traces to Arize through OpenTelemetry when `ARIZE_API_KEY` and `ARIZE_SPACE_KEY` are configured.

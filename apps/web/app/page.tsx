@@ -115,6 +115,10 @@ type AnalyzeResponse = {
   thesis?: TradingThesis;
   traceId?: string;
   agentStatus?: 'AI_AGENT' | 'RULE_BASED_FALLBACK';
+  agentFailure?: {
+    reason?: string;
+    message?: string;
+  };
   thesisRecord?: ThesisRecord;
   thesisRecordId?: string;
   signalDetails?: SignalDetail[];
@@ -1148,7 +1152,7 @@ function AnalysisDetailsModal({
           <div className="grid gap-5">
             {result.agentStatus === 'RULE_BASED_FALLBACK' && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold leading-6 text-amber-900">
-                The AI agent did not respond before the timeout, so this analysis used a rule-based fallback. Re-run analysis when the agent is responsive for a full Gemini thesis.
+                {getFallbackNotice(result.agentFailure)}
               </div>
             )}
 
@@ -1861,6 +1865,30 @@ function formatCurrency(value?: number) {
     currency: 'USD',
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function getFallbackNotice(agentFailure?: AnalyzeResponse['agentFailure']) {
+  if (agentFailure?.reason === 'TIMEOUT') {
+    return 'AI analysis exceeded the agent time budget, so this run used a rule-based fallback. The agent now has a longer default budget; re-run analysis for a full AI thesis.';
+  }
+
+  if (agentFailure?.reason === 'AGENT_UNREACHABLE') {
+    return 'The Python OpenAI agent is not reachable, so this run used a rule-based fallback. Start or redeploy the agent service, then re-run analysis.';
+  }
+
+  if (agentFailure?.reason === 'AGENT_CONFIG') {
+    return 'The OpenAI agent appears to be missing credentials or provider configuration, so this run used a rule-based fallback. Check the agent environment variables, then re-run analysis.';
+  }
+
+  if (agentFailure?.reason === 'AGENT_QUOTA') {
+    return 'OpenAI rejected the request because the configured account is out of quota or credits, so this run used a rule-based fallback. Update OpenAI billing or credentials, then re-run analysis.';
+  }
+
+  if (agentFailure?.reason === 'INVALID_AGENT_RESPONSE') {
+    return 'The OpenAI agent returned a response that did not match the required thesis schema, so this run used a rule-based fallback. Re-run analysis after the agent is healthy.';
+  }
+
+  return 'The OpenAI agent did not complete successfully, so this analysis used a rule-based fallback. Re-run analysis when the agent is responsive for a full AI thesis.';
 }
 
 function compactCurrency(value?: number) {

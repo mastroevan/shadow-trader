@@ -1,13 +1,16 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import setupsRouter from './routes/setups';
 import watchlistRouter from './routes/watchlist';
 import thesesRouter from './routes/theses';
 import observabilityRouter from './routes/observability';
 import { requireApiKey } from './middleware/apiKeyAuth';
 
-dotenv.config();
+dotenv.config({
+  path: path.resolve(process.cwd(), "../../.env"),
+});
 
 const app = express();
 app.use(cors({ origin: process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://localhost:3000' }));

@@ -19,8 +19,8 @@ const config: runtime.GetPrismaClientConfig = {
   "previewFeatures": [],
   "clientVersion": "7.8.0",
   "engineVersion": "3c6e192761c0362d496ed980de936e2f3cebcd3a",
-  "activeProvider": "sqlite",
-  "inlineSchema": "generator client {\n  provider     = \"prisma-client\"\n  output       = \"../src/generated/prisma\"\n  moduleFormat = \"cjs\"\n}\n\ndatasource db {\n  provider = \"sqlite\"\n}\n\nmodel TradeLifecycleEntry {\n  id          String   @id\n  kind        String\n  symbol      String\n  status      String\n  ledgerId    String?  @unique\n  payloadJson String\n  createdAt   DateTime\n  updatedAt   DateTime\n\n  @@index([kind, status])\n  @@index([kind, symbol])\n  @@index([updatedAt])\n}\n\nmodel ThesisRecord {\n  id          String   @id\n  symbol      String\n  status      String\n  payloadJson String\n  generatedAt DateTime\n  updatedAt   DateTime\n\n  @@index([symbol])\n  @@index([status])\n  @@index([generatedAt])\n}\n",
+  "activeProvider": "postgresql",
+  "inlineSchema": "generator client {\n  provider     = \"prisma-client\"\n  output       = \"../src/generated/prisma\"\n  moduleFormat = \"cjs\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n}\n\nmodel TradeLifecycleEntry {\n  id          String   @id\n  kind        String\n  symbol      String\n  status      String\n  ledgerId    String?  @unique\n  payloadJson String\n  createdAt   DateTime\n  updatedAt   DateTime\n\n  @@index([kind, status])\n  @@index([kind, symbol])\n  @@index([updatedAt])\n}\n\nmodel ThesisRecord {\n  id          String   @id\n  symbol      String\n  status      String\n  payloadJson String\n  generatedAt DateTime\n  updatedAt   DateTime\n\n  @@index([symbol])\n  @@index([status])\n  @@index([generatedAt])\n}\n",
   "runtimeDataModel": {
     "models": {},
     "enums": {},
@@ -45,10 +45,10 @@ async function decodeBase64AsWasm(wasmBase64: string): Promise<WebAssembly.Modul
 }
 
 config.compilerWasm = {
-  getRuntime: async () => await import("@prisma/client/runtime/query_compiler_fast_bg.sqlite.js"),
+  getRuntime: async () => await import("@prisma/client/runtime/query_compiler_fast_bg.postgresql.js"),
 
   getQueryCompilerWasmModule: async () => {
-    const { wasm } = await import("@prisma/client/runtime/query_compiler_fast_bg.sqlite.wasm-base64.js")
+    const { wasm } = await import("@prisma/client/runtime/query_compiler_fast_bg.postgresql.wasm-base64.js")
     return await decodeBase64AsWasm(wasm)
   },
 
