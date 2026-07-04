@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 from typing import Any, Optional
 
+import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -81,7 +82,10 @@ def analyze_trade(request: AnalyzeRequest):
         with_agent_mode(mode)
 
         if is_structured_app_request(request):
-            raw_response = analyze(build_structured_prompt(request))
+            raw_response = analyze_structured_prompt(
+                build_structured_prompt(request),
+                selected_model,
+            )
             thesis = parse_agent_json(raw_response)
             return validate_thesis_payload(thesis, request.symbol or request.ticker)
 
@@ -125,6 +129,78 @@ def get_mode_and_model(requested_mode: Optional[str] = None) -> tuple[str, str]:
 
 def with_agent_mode(mode: str) -> None:
     os.environ["SHADOW_TRADER_MODE"] = mode
+
+
+def get_openai_timeout_seconds() -> float:
+    raw_timeout = os.getenv("OPENAI_TIMEOUT_MS", "60000")
+
+    try:
+        timeout_ms = int(raw_timeout)
+    except ValueError:
+        timeout_ms = 60000
+
+    return max(timeout_ms, 5000) / 1000
+
+
+def analyze_structured_prompt(prompt: str, model: str) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENAI_API_KEY is not configured for the agent service.",
+        )
+
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "temperature": 0,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are Shadow Trader's trading analysis agent. "
+                            "Return only valid JSON matching the requested schema."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+            },
+            timeout=get_openai_timeout_seconds(),
+        )
+    except requests.RequestException as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"OpenAI request failed: {str(error)}",
+        ) from error
+
+    if not response.ok:
+        raise HTTPException(
+            status_code=502,
+            detail=f"OpenAI request failed with status {response.status_code}: {response.text[:500]}",
+        )
+
+    payload = response.json()
+
+    try:
+        content = payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"OpenAI returned an unexpected response shape: {json.dumps(payload)[:500]}",
+        ) from error
+
+    if not isinstance(content, str) or not content.strip():
+        raise HTTPException(status_code=502, detail="OpenAI returned an empty thesis.")
+
+    return content
 
 
 def is_structured_app_request(request: AnalyzeRequest) -> bool:

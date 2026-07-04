@@ -8,27 +8,11 @@ from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 
-try:
-    from apps.agent.tools.market_data import get_market_data
-    from apps.agent.tools.technicals import get_technical_analysis
-    from apps.agent.tools.news import get_company_news
-except ModuleNotFoundError:
-    from tools.market_data import get_market_data
-    from tools.technicals import get_technical_analysis
-    from tools.news import get_company_news
-
 load_dotenv()
 
 
 class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], operator.add]
-
-
-tools = [
-    get_market_data,
-    get_technical_analysis,
-    get_company_news,
-]
 
 
 SYSTEM_PROMPT = """
@@ -81,6 +65,23 @@ Rules:
 """
 
 
+def get_tools():
+    try:
+        from apps.agent.tools.market_data import get_market_data
+        from apps.agent.tools.technicals import get_technical_analysis
+        from apps.agent.tools.news import get_company_news
+    except ModuleNotFoundError:
+        from tools.market_data import get_market_data
+        from tools.technicals import get_technical_analysis
+        from tools.news import get_company_news
+
+    return [
+        get_market_data,
+        get_technical_analysis,
+        get_company_news,
+    ]
+
+
 def get_selected_model() -> tuple[str, str]:
     mode = os.getenv("SHADOW_TRADER_MODE", "fast").lower()
 
@@ -92,19 +93,32 @@ def get_selected_model() -> tuple[str, str]:
     return mode, selected_model
 
 
-def build_agent():
+def get_openai_timeout_seconds() -> float:
+    raw_timeout = os.getenv("OPENAI_TIMEOUT_MS", "60000")
+
+    try:
+        timeout_ms = int(raw_timeout)
+    except ValueError:
+        timeout_ms = 60000
+
+    return max(timeout_ms, 5000) / 1000
+
+
+def build_agent(use_tools: bool = True):
     mode, selected_model = get_selected_model()
     print(f"Using OpenAI model: {selected_model} ({mode} mode)")
 
     model = ChatOpenAI(
         model=selected_model,
         temperature=0,
+        timeout=get_openai_timeout_seconds(),
     )
 
-    model_with_tools = model.bind_tools(tools)
+    tools = get_tools() if use_tools else []
+    model_for_request = model.bind_tools(tools) if tools else model
 
     def call_model(state: AgentState):
-        response = model_with_tools.invoke(
+        response = model_for_request.invoke(
             [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
         )
 
@@ -113,18 +127,22 @@ def build_agent():
     workflow = StateGraph(AgentState)
 
     workflow.add_node("agent", call_model)
-    workflow.add_node("tools", ToolNode(tools))
+    if tools:
+        workflow.add_node("tools", ToolNode(tools))
 
     workflow.add_edge(START, "agent")
-    workflow.add_conditional_edges(
-        "agent",
-        should_continue,
-        {
-            "tools": "tools",
-            END: END,
-        },
-    )
-    workflow.add_edge("tools", "agent")
+    if tools:
+        workflow.add_conditional_edges(
+            "agent",
+            should_continue,
+            {
+                "tools": "tools",
+                END: END,
+            },
+        )
+        workflow.add_edge("tools", "agent")
+    else:
+        workflow.add_edge("agent", END)
 
     return workflow.compile()
 
@@ -138,8 +156,8 @@ def should_continue(state: AgentState):
     return END
 
 
-def analyze(question: str) -> str:
-    agent = build_agent()
+def analyze(question: str, use_tools: bool = True) -> str:
+    agent = build_agent(use_tools=use_tools)
     result = agent.invoke(
         {
             "messages": [
