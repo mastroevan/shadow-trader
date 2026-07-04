@@ -16,6 +16,15 @@ const app = express();
 app.use(cors({ origin: process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://localhost:3000' }));
 app.use(express.json());
 
+app.get('/', (_, res) =>
+  res.json({
+    status: 'ok',
+    service: 'shadow-trader-api',
+    health: '/health',
+    apiBase: '/api',
+  }),
+);
+app.get('/.well-known/appspecific/com.chrome.devtools.json', (_, res) => res.sendStatus(204));
 app.get('/health', (_, res) => res.json({ status: 'ok', service: 'shadow-trader-api' }));
 app.use('/api', requireApiKey);
 app.use('/api', setupsRouter);
