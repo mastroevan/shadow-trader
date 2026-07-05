@@ -23,6 +23,7 @@ import {
   BookmarkPlus,
   CheckCircle2,
   ClipboardList,
+  DatabaseZap,
   Layers3,
   Moon,
   Newspaper,
@@ -244,6 +245,7 @@ const LIVE_POLL_INTERVAL_MS = 20_000;
 const CARD_CLASS = 'rounded-lg border border-zinc-200/80 bg-white/95 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95 dark:shadow-[0_18px_50px_rgba(0,0,0,0.35)]';
 const INNER_CARD_CLASS = 'rounded-lg border border-zinc-200 bg-gradient-to-br from-white to-zinc-50 p-4 shadow-sm dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950';
 const THEME_STORAGE_KEY = 'shadow-trader-theme';
+const SHOW_DEV_RESET = process.env.NODE_ENV === 'development';
 
 function apiHeaders() {
   return {
@@ -274,6 +276,8 @@ export default function Home() {
   const [markPriceDrafts, setMarkPriceDrafts] = useState<Record<string, string>>({});
   const [lastLiveRefresh, setLastLiveRefresh] = useState<string | null>(null);
   const [livePolling, setLivePolling] = useState(false);
+  const [resettingDemoData, setResettingDemoData] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -332,6 +336,56 @@ export default function Home() {
       // The watchlist is useful when available, but analysis should still work without it.
     } finally {
       setLoadingWatchlist(false);
+    }
+  }
+
+  async function handleResetDemoData() {
+    const confirmed = window.confirm('Clear all local development database rows?');
+
+    if (!confirmed) return;
+
+    setResettingDemoData(true);
+    setResetMessage('');
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/dev/reset-demo-data`, {
+        method: 'POST',
+        headers: apiHeaders(),
+      });
+
+      const data = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+        deleted?: {
+          tradeLifecycleEntries?: number;
+          thesisRecords?: number;
+        };
+      };
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message ?? data.error ?? 'Could not reset development data.');
+      }
+
+      setWatchlistEntries([]);
+      setTradeEntries([]);
+      setLedgerEntries([]);
+      setSavedEntry(null);
+      setSelectedWatchlistEntry(null);
+      setResult(null);
+      setAnalysisModalOpen(false);
+      setMarkPriceDrafts({});
+      setLastLiveRefresh(null);
+
+      const deletedTotal = (data.deleted?.tradeLifecycleEntries ?? 0) + (data.deleted?.thesisRecords ?? 0);
+      setResetMessage(`Development data reset. Deleted ${deletedTotal} row${deletedTotal === 1 ? '' : 's'}.`);
+      void loadWorkflow();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not reset development data.';
+      setError(message === 'Failed to fetch' ? 'Could not reach the reset API. Make sure the backend is running on port 3001.' : message);
+    } finally {
+      setResettingDemoData(false);
     }
   }
 
@@ -682,20 +736,41 @@ export default function Home() {
               </button>
             </form>
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={darkMode}
-              aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-              title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-              onClick={() => setDarkMode((enabled) => !enabled)}
-              className="inline-flex h-10 w-20 items-center rounded-full border border-zinc-300 bg-zinc-100 p-1 shadow-sm transition hover:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:ring-emerald-500/20"
-            >
-              <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-zinc-700 shadow-sm transition-transform dark:bg-emerald-500 dark:text-white ${darkMode ? 'translate-x-10' : 'translate-x-0'}`}>
-                {darkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-              </span>
-            </button>
+            <div className="flex items-center gap-2">
+              {SHOW_DEV_RESET && (
+                <button
+                  type="button"
+                  aria-label="Reset development data"
+                  title="Reset development data"
+                  disabled={resettingDemoData}
+                  onClick={() => void handleResetDemoData()}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 shadow-sm transition hover:border-red-400 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300 dark:hover:border-red-700 dark:hover:bg-red-950"
+                >
+                  <DatabaseZap className={`h-4 w-4 ${resettingDemoData ? 'animate-pulse' : ''}`} />
+                </button>
+              )}
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={darkMode}
+                aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                onClick={() => setDarkMode((enabled) => !enabled)}
+                className="inline-flex h-10 w-20 items-center rounded-full border border-zinc-300 bg-zinc-100 p-1 shadow-sm transition hover:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:ring-emerald-500/20"
+              >
+                <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-zinc-700 shadow-sm transition-transform dark:bg-emerald-500 dark:text-white ${darkMode ? 'translate-x-10' : 'translate-x-0'}`}>
+                  {darkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+                </span>
+              </button>
+            </div>
           </div>
+
+          {resetMessage && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-200">
+              {resetMessage}
+            </div>
+          )}
 
           {error && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
