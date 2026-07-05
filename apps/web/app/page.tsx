@@ -237,8 +237,7 @@ type ThesisRecord = {
   outcome: ThesisOutcome | null;
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-const API_KEY = process.env.NEXT_PUBLIC_SHADOW_TRADER_API_KEY;
+const API_BASE_URL = '/api/backend';
 type AssetClass = 'stock' | 'crypto';
 type Timeframe = '1m' | '5m' | '15m' | '1h';
 
@@ -252,8 +251,7 @@ const SHOW_DEV_RESET = process.env.NODE_ENV === 'development';
 
 function apiHeaders() {
   return {
-    'Content-Type': 'application/json',
-    ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+    'Content-Type': 'application/json'
   };
 }
 
@@ -316,9 +314,9 @@ export default function Home() {
 
     try {
       const [watchlistResponse, tradeResponse, ledgerResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/watchlist`, { headers: apiHeaders() }),
-        fetch(`${API_BASE_URL}/api/trade-list`, { headers: apiHeaders() }),
-        fetch(`${API_BASE_URL}/api/trust-ledger`, { headers: apiHeaders() }),
+        fetch(`${API_BASE_URL}/watchlist`, { headers: apiHeaders() }),
+        fetch(`${API_BASE_URL}/trade-list`, { headers: apiHeaders() }),
+        fetch(`${API_BASE_URL}/trust-ledger`, { headers: apiHeaders() }),
       ]);
 
       if (watchlistResponse.ok) {
@@ -352,7 +350,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/dev/reset-demo-data`, {
+      const response = await fetch(`${API_BASE_URL}/dev/reset-demo-data`, {
         method: 'POST',
         headers: apiHeaders(),
       });
@@ -408,7 +406,7 @@ export default function Home() {
     setAnalysisModalOpen(false);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/setups/analyze`, {
+      const response = await fetch(`${API_BASE_URL}/setups/analyze`, {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({ symbol: cleanSymbol, assetClass: nextAssetClass, timeframe: nextTimeframe }),
@@ -439,7 +437,7 @@ export default function Home() {
     setLivePolling(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/market/snapshot`, {
+      const response = await fetch(`${API_BASE_URL}/market/snapshot`, {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({
@@ -490,7 +488,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/watchlist`, {
+      const response = await fetch(`${API_BASE_URL}/watchlist`, {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({
@@ -536,7 +534,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/watchlist/${entryId}/status`, {
+      const response = await fetch(`${API_BASE_URL}/watchlist/${entryId}/status`, {
         method: 'PATCH',
         headers: apiHeaders(),
         body: JSON.stringify({ status }),
@@ -569,7 +567,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/watchlist/${entry.id}/paper-trade`, {
+      const response = await fetch(`${API_BASE_URL}/watchlist/${entry.id}/paper-trade`, {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({
@@ -609,7 +607,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/paper-trades/${entryId}`, {
+      const response = await fetch(`${API_BASE_URL}/paper-trades/${entryId}`, {
         method: 'PATCH',
         headers: apiHeaders(),
         body: JSON.stringify({ currentPrice }),
@@ -636,7 +634,7 @@ export default function Home() {
 
     try {
       const trade = tradeEntries.find((entry) => entry.id === entryId);
-      const response = await fetch(`${API_BASE_URL}/api/trade-list/${entryId}/close`, {
+      const response = await fetch(`${API_BASE_URL}/trade-list/${entryId}/close`, {
         method: 'PATCH',
         headers: apiHeaders(),
         body: JSON.stringify({

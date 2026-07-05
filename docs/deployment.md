@@ -47,14 +47,14 @@ ARIZE_SPACE_KEY
 AGENT_URL=https://shadow-trader-agent.onrender.com/analyze
 AGENT_TIMEOUT_MS=95000
 NEXT_PUBLIC_FRONTEND_URL=https://shadow-trader-web.onrender.com
-SHADOW_TRADER_API_KEY
+INTERNAL_API_KEY
 ```
 
 Web service:
 
 ```text
-NEXT_PUBLIC_API_URL=https://shadow-trader-api.onrender.com
-NEXT_PUBLIC_SHADOW_TRADER_API_KEY=<same value as SHADOW_TRADER_API_KEY>
+API_INTERNAL_BASE_URL=https://shadow-trader-api.onrender.com
+INTERNAL_API_KEY=<same value as API service>
 ```
 
 ## Database Migration

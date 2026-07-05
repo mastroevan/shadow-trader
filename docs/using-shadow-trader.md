@@ -20,7 +20,8 @@ Optional integrations:
 
 - `ARIZE_API_KEY`
 - `ARIZE_SPACE_KEY`
-- `SHADOW_TRADER_API_KEY`
+- `INTERNAL_API_KEY`
+- `API_INTERNAL_BASE_URL`
 
 ## Install
 
@@ -273,10 +274,10 @@ AUTOMATION_INTERVAL_MS=900000
 AUTOMATION_ENTRY_MOVE_PCT=0.01
 ```
 
-If `SHADOW_TRADER_API_KEY` is set, include:
+If `INTERNAL_API_KEY` is set and you call the Node API directly, include:
 
 ```bash
--H "Authorization: Bearer <key>"
+-H "x-api-key: <key>"
 ```
 
 ## Data Storage
