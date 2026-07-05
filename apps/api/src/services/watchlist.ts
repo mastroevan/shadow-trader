@@ -16,6 +16,9 @@ export type WatchlistEntry = {
   thesis: string;
   entryTrigger: string;
   invalidation: string;
+  entryZone?: string;
+  stopLossTrigger?: string;
+  takeProfitTrigger?: string;
   watchConditions: string[];
   riskExplanation?: string;
   news?: Array<{
@@ -368,8 +371,8 @@ function buildTradeEntry(
     currentProfitLoss: null,
     currentProfitLossPercent: null,
     quantity: input.quantity ?? 1,
-    stopLoss: input.stopLoss ?? null,
-    takeProfit: input.takeProfit ?? null,
+    stopLoss: input.stopLoss ?? parseFirstPriceLevel(entry.stopLossTrigger),
+    takeProfit: input.takeProfit ?? parseFirstPriceLevel(entry.takeProfitTrigger),
     fees: input.fees ?? 0,
     slippage: input.slippage ?? 0,
     notes: input.notes ?? "",
@@ -406,6 +409,11 @@ function normalizeStoredEntry(entry: WatchlistEntry): WatchlistEntry {
       : [],
     riskExplanation:
       typeof entry.riskExplanation === "string" ? entry.riskExplanation : undefined,
+    entryZone: typeof entry.entryZone === "string" ? entry.entryZone : undefined,
+    stopLossTrigger:
+      typeof entry.stopLossTrigger === "string" ? entry.stopLossTrigger : undefined,
+    takeProfitTrigger:
+      typeof entry.takeProfitTrigger === "string" ? entry.takeProfitTrigger : undefined,
     news: Array.isArray(entry.news)
       ? entry.news.map((item) => ({
           headline: typeof item?.headline === "string" ? item.headline : undefined,
@@ -502,6 +510,7 @@ function withPaperTradeProfit<T extends TradeEntry>(trade: T): T {
 
 function calculatePaperTradeProfit(
   trade: {
+    direction?: string;
     entryPrice?: number | null;
     quantity?: number | null;
     fees?: number | null;
@@ -521,7 +530,10 @@ function calculatePaperTradeProfit(
   const quantity = typeof trade.quantity === "number" ? trade.quantity : 1;
   const fees = typeof trade.fees === "number" ? trade.fees : 0;
   const slippage = typeof trade.slippage === "number" ? trade.slippage : 0;
-  const grossProfitLoss = (price - entryPrice) * quantity;
+  const directionMultiplier = trade.direction?.toUpperCase().includes("BEAR")
+    ? -1
+    : 1;
+  const grossProfitLoss = (price - entryPrice) * quantity * directionMultiplier;
   const profitLoss = grossProfitLoss - fees - slippage;
   const basis = entryPrice * quantity;
 
@@ -529,4 +541,27 @@ function calculatePaperTradeProfit(
     profitLoss,
     profitLossPercent: basis !== 0 ? profitLoss / basis : null,
   };
+}
+
+function parseFirstPriceLevel(value?: string): number | null {
+  if (!value) return null;
+
+  const matches = value.matchAll(/\$?\b\d+(?:,\d{3})*(?:\.\d+)?\b/g);
+
+  for (const match of matches) {
+    const raw = match[0];
+    const nextCharacter = value[Number(match.index) + raw.length]?.toLowerCase();
+
+    if (nextCharacter === "%" || nextCharacter === "r" || nextCharacter === "x") {
+      continue;
+    }
+
+    const parsed = Number(raw.replace(/[$,]/g, ""));
+
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return null;
 }

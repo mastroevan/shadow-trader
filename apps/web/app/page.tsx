@@ -154,6 +154,9 @@ type SavedWatchlistEntry = {
   thesis: string;
   entryTrigger: string;
   invalidation: string;
+  entryZone?: string;
+  stopLossTrigger?: string;
+  takeProfitTrigger?: string;
   watchConditions: string[];
   riskExplanation?: string;
   news?: NewsItem[];
@@ -499,6 +502,9 @@ export default function Home() {
           thesis: thesis.thesis,
           entryTrigger: plan.entryTrigger,
           invalidation: plan.invalidation,
+          entryZone: thesis.setup?.entryZone,
+          stopLossTrigger: thesis.setup?.stopLoss,
+          takeProfitTrigger: thesis.setup?.takeProfit,
           timeHorizon: thesis.timeHorizon,
           watchConditions: plan.watchConditions,
           riskExplanation: thesis.riskExplanation,

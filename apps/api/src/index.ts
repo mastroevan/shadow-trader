@@ -6,8 +6,10 @@ import setupsRouter from './routes/setups';
 import watchlistRouter from './routes/watchlist';
 import thesesRouter from './routes/theses';
 import observabilityRouter from './routes/observability';
+import automationRouter from './routes/automation';
 import { requireApiKey } from './middleware/apiKeyAuth';
 import { getDb } from './services/db';
+import { startAutomationScheduler } from './services/automationScheduler';
 
 dotenv.config({
   path: path.resolve(process.cwd(), "../../.env"),
@@ -67,8 +69,10 @@ app.use('/api', setupsRouter);
 app.use('/api', watchlistRouter);
 app.use('/api', thesesRouter);
 app.use('/api', observabilityRouter);
+app.use('/api', automationRouter);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Shadow Trader API running on port ${PORT}`);
+  startAutomationScheduler();
 });

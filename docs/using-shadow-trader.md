@@ -257,6 +257,22 @@ curl http://127.0.0.1:3001/api/trade-list
 curl http://127.0.0.1:3001/api/trust-ledger
 ```
 
+Run trigger automation once:
+
+```bash
+curl -s -X POST http://127.0.0.1:3001/api/automation/run
+```
+
+Trigger automation checks saved watchlist entries for entry triggers and active paper trades for exit triggers. It uses explicit price levels from the saved setup text when available. If no entry price level is present, it falls back to `AUTOMATION_ENTRY_MOVE_PCT`, which defaults to `0.01` for a 1% move in the thesis direction.
+
+Background automation is opt-in:
+
+```env
+AUTOMATION_ENABLED=true
+AUTOMATION_INTERVAL_MS=900000
+AUTOMATION_ENTRY_MOVE_PCT=0.01
+```
+
 If `SHADOW_TRADER_API_KEY` is set, include:
 
 ```bash

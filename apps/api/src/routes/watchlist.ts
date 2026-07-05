@@ -59,6 +59,16 @@ router.post("/watchlist", async (req, res) => {
     thesis: String(req.body.thesis ?? ""),
     entryTrigger: String(req.body.entryTrigger ?? "Watch for signal confirmation."),
     invalidation: String(req.body.invalidation ?? "Reassess if the original thesis breaks."),
+    entryZone:
+      typeof req.body.entryZone === "string" ? req.body.entryZone : undefined,
+    stopLossTrigger:
+      typeof req.body.stopLossTrigger === "string"
+        ? req.body.stopLossTrigger
+        : undefined,
+    takeProfitTrigger:
+      typeof req.body.takeProfitTrigger === "string"
+        ? req.body.takeProfitTrigger
+        : undefined,
     watchConditions: Array.isArray(req.body.watchConditions)
       ? req.body.watchConditions.map(String).slice(0, 5)
       : [],
