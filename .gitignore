@@ -5,6 +5,9 @@ venv/
 dist/
 build/
 .env
+.env.local
+apps/**/.env.local
+apps/web/package-lock.json
 apps/api/data/
 .DS_Store
 __pycache__/
