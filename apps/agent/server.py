@@ -295,6 +295,11 @@ Required JSON schema:
   "symbol": "string",
   "direction": "BULLISH | BEARISH | NEUTRAL",
   "thesis": "2-4 direct sentences explaining the setup",
+  "strategy": "string, for example Intraday momentum",
+  "tradingStyle": "Scalping | Day Trading | Swing | Position",
+  "analysisTimeframe": "1m | 5m | 15m | 1h | 1d",
+  "expectedHold": "string, for example 1-3 hours",
+  "analysisReason": "one direct sentence explaining why this strategy, timeframe, and hold were selected",
   "confidenceScore": 0.0,
   "bullishFactors": ["exactly two strings"],
   "bearishFactors": ["exactly two strings"],
@@ -329,6 +334,8 @@ Rules:
 - confidenceScore must be between 0 and 1.
 - Use the provided quote, candles, signal details, and headlines.
 - Reference concrete price action or signal evidence in the thesis.
+- The AI chooses strategy, tradingStyle, analysisTimeframe, expectedHold, setupType, bias, and confidence. Do not assume the user selected a style.
+- analysisTimeframe should match the chart evidence being used, usually the provided instrument timeframe.
 - Do not recommend live execution. Treat this as a paper-trading setup candidate.
 """.strip()
 
@@ -372,6 +379,11 @@ def validate_thesis_payload(payload: dict[str, Any], fallback_symbol: Optional[s
         "symbol": symbol,
         "direction": direction,
         "thesis": require_string(payload.get("thesis"), "thesis"),
+        "strategy": require_string(payload.get("strategy"), "strategy"),
+        "tradingStyle": require_string(payload.get("tradingStyle"), "tradingStyle"),
+        "analysisTimeframe": require_string(payload.get("analysisTimeframe"), "analysisTimeframe"),
+        "expectedHold": require_string(payload.get("expectedHold"), "expectedHold"),
+        "analysisReason": require_string(payload.get("analysisReason"), "analysisReason"),
         "confidenceScore": confidence,
         "bullishFactors": require_string_list(payload.get("bullishFactors"), "bullishFactors", 2),
         "bearishFactors": require_string_list(payload.get("bearishFactors"), "bearishFactors", 2),

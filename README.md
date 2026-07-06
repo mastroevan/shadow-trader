@@ -13,8 +13,10 @@ Arize/OpenTelemetry traces make each AI agent run inspectable and debuggable. Th
 - Fetches live quote and recent company news from Finnhub.
 - Adds technical context with a 20-day SMA trend signal.
 - Sends quote, signals, and headlines to an OpenAI/LangGraph Python agent.
+- Lets the user pick the market while the AI chooses strategy, analysis timeframe, expected hold, setup type, bias, and confidence.
 - Produces a structured thesis with exactly two bullish and two bearish factors.
-- Generates an actionable watchlist plan with trigger, invalidation, and watch conditions.
+- Generates an actionable watchlist plan with trigger, invalidation, watch conditions, entry zone, stop loss, take profit, risk/reward, and warnings.
+- Handles watchlist eligibility from confidence: `75%+` auto-adds, `60-74%` requires manual review, and below `60%` is rejected from watchlist tracking.
 - Saves watchlist, paper-trade, ledger, and thesis records through the Node API.
 - Emits Arize-compatible trace metadata for agent observability.
 
@@ -35,11 +37,11 @@ flowchart LR
 ## Demo Flow
 
 1. Open the app.
-2. Click `NVDA` or another demo ticker.
-3. Review the analysis details modal with quote data, signals, headlines, and AI thesis.
-4. Point out the trace id and Arize observability hook.
-5. Click `Add to Watchlist`.
-6. Explain that the agent moved from analysis into a saved watchlist setup.
+2. Select `crypto` or `stock`, then enter a symbol or click a demo ticker.
+3. Click `Scan Setup`.
+4. Review the AI Analysis output: strategy, trading style, analysis timeframe, expected hold, setup type, bias, confidence, and reason.
+5. Point out the trace id and Arize observability hook.
+6. Explain the confidence decision: high-confidence setups are added automatically, moderate-confidence setups can be added manually, and low-confidence setups are rejected from watchlist tracking.
 
 ## Local Setup
 
@@ -112,6 +114,12 @@ Optional:
 - `AUTOMATION_ENABLED`
 - `AUTOMATION_INTERVAL_MS`
 - `AUTOMATION_ENTRY_MOVE_PCT`
+- `STARTUP_SCAN_ENABLED` defaults to `true`; set to `false` to disable startup scans
+- `STARTUP_SCAN_STOCK_TICKERS` defaults to `NVDA,AAPL,MSFT,TSLA,META`
+- `STARTUP_SCAN_CRYPTO_TICKERS` defaults to `BTC/USD,ETH/USD,SOL/USD`
+- `STARTUP_SCAN_TICKERS` optional mixed list; supports values like `stock:AMD,crypto:BTC/USD`
+- `STARTUP_SCAN_MIN_CONFIDENCE` defaults to `0.75`
+- `STARTUP_SCAN_TIMEFRAME` defaults to `5m`
 - `PORT`
 
 ## Deployment

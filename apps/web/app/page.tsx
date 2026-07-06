@@ -40,6 +40,11 @@ type TradingThesis = {
   symbol?: string;
   direction?: string;
   thesis?: string;
+  strategy?: string;
+  tradingStyle?: string;
+  analysisTimeframe?: string;
+  expectedHold?: string;
+  analysisReason?: string;
   confidenceScore?: number;
   bullishFactors?: string[];
   bearishFactors?: string[];
@@ -239,11 +244,11 @@ type ThesisRecord = {
 
 const API_BASE_URL = '/api/backend';
 type AssetClass = 'stock' | 'crypto';
-type Timeframe = '1m' | '5m' | '15m' | '1h';
 
 const DEMO_INSTRUMENTS = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'NVDA', 'TSLA', 'AAPL'];
-const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h'];
 const LIVE_POLL_INTERVAL_MS = 20_000;
+const AUTO_WATCHLIST_CONFIDENCE = 75;
+const MANUAL_WATCHLIST_CONFIDENCE = 60;
 const CARD_CLASS = 'rounded-lg border border-zinc-200/80 bg-white/95 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)] backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95 dark:shadow-[0_18px_50px_rgba(0,0,0,0.35)]';
 const INNER_CARD_CLASS = 'rounded-lg border border-zinc-200 bg-gradient-to-br from-white to-zinc-50 p-4 shadow-sm dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950';
 const THEME_STORAGE_KEY = 'shadow-trader-theme';
@@ -260,7 +265,6 @@ export default function Home() {
   const [themeLoaded, setThemeLoaded] = useState(false);
   const [symbol, setSymbol] = useState('BTC/USD');
   const [assetClass, setAssetClass] = useState<AssetClass>('crypto');
-  const [timeframe, setTimeframe] = useState<Timeframe>('5m');
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [analysisModalOpen, setAnalysisModalOpen] = useState(false);
@@ -279,6 +283,7 @@ export default function Home() {
   const [livePolling, setLivePolling] = useState(false);
   const [resettingDemoData, setResettingDemoData] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
+  const [watchlistDecisionMessage, setWatchlistDecisionMessage] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -390,7 +395,7 @@ export default function Home() {
     }
   }
 
-  async function analyzeTicker(nextSymbol?: string, nextAssetClass = assetClass, nextTimeframe = timeframe) {
+  async function analyzeTicker(nextSymbol?: string, nextAssetClass = assetClass) {
     const cleanSymbol = (nextSymbol ?? symbol).trim().toUpperCase();
 
     if (!cleanSymbol) {
@@ -401,6 +406,7 @@ export default function Home() {
     setSymbol(cleanSymbol);
     setLoading(true);
     setSavedEntry(null);
+    setWatchlistDecisionMessage('');
     setError('');
     setResult(null);
     setAnalysisModalOpen(false);
@@ -409,7 +415,7 @@ export default function Home() {
       const response = await fetch(`${API_BASE_URL}/setups/analyze`, {
         method: 'POST',
         headers: apiHeaders(),
-        body: JSON.stringify({ symbol: cleanSymbol, assetClass: nextAssetClass, timeframe: nextTimeframe }),
+        body: JSON.stringify({ symbol: cleanSymbol, assetClass: nextAssetClass }),
       });
 
       const data = (await response.json()) as AnalyzeResponse;
@@ -421,6 +427,15 @@ export default function Home() {
       setResult(data);
       setLastLiveRefresh(data.meta?.analyzedAt ?? new Date().toISOString());
       setAnalysisModalOpen(true);
+
+      const nextConfidencePct = getConfidencePct(data.thesis);
+      if (nextConfidencePct !== null && nextConfidencePct >= AUTO_WATCHLIST_CONFIDENCE) {
+        await saveWatchlistForAnalysis(data, 'auto');
+      } else if (nextConfidencePct !== null && nextConfidencePct >= MANUAL_WATCHLIST_CONFIDENCE) {
+        setWatchlistDecisionMessage('This setup has moderate confidence. Review before adding to your Watch List.');
+      } else if (nextConfidencePct !== null) {
+        setWatchlistDecisionMessage('Rejected automatically because confidence is below 60%.');
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong.';
       setError(message === 'Failed to fetch' ? 'Could not reach the analysis API. Make sure the backend is running on port 3001.' : message);
@@ -443,7 +458,7 @@ export default function Home() {
         body: JSON.stringify({
           symbol: currentSymbol,
           assetClass: result?.meta?.instrument?.assetClass ?? assetClass,
-          timeframe: result?.meta?.instrument?.timeframe ?? timeframe,
+          timeframe: result?.meta?.instrument?.timeframe,
           exchange: result?.meta?.instrument?.exchange,
         }),
       });
@@ -479,10 +494,24 @@ export default function Home() {
     void analyzeTicker();
   }
 
-  async function handleAddToWatchlist() {
-    if (!thesis) return;
+  async function saveWatchlistForAnalysis(analysis: AnalyzeResponse, mode: 'auto' | 'manual') {
+    const analysisThesis = analysis.thesis;
+    if (!analysisThesis) return;
 
-    const plan = getTradePlan(thesis, featuredSignals);
+    const analysisConfidencePct = getConfidencePct(analysisThesis);
+    if (analysisConfidencePct !== null && analysisConfidencePct < MANUAL_WATCHLIST_CONFIDENCE) {
+      setWatchlistDecisionMessage('Rejected automatically because confidence is below 60%.');
+      return;
+    }
+
+    const analysisSignals = analysis.signalDetails ?? [];
+    const plan = getTradePlan(analysisThesis, getFeaturedSignals(analysisSignals));
+    const analysisSymbol =
+      analysisThesis.symbol ??
+      analysis.quote?.symbol ??
+      analysis.meta?.symbol ??
+      symbol.toUpperCase();
+    const analysisNews = analysis.news?.filter((item) => item.headline).slice(0, 5) ?? [];
 
     setSavingWatchlist(true);
     setError('');
@@ -492,22 +521,22 @@ export default function Home() {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({
-          symbol: symbolLabel,
-          direction: thesis.direction,
-          suggestedAction: thesis.suggestedAction,
-          confidenceScore: thesis.confidenceScore,
-          startPrice: quote?.price ?? result?.thesisRecord?.initialPrice ?? null,
-          thesis: thesis.thesis,
+          symbol: analysisSymbol,
+          direction: analysisThesis.direction,
+          suggestedAction: analysisThesis.suggestedAction,
+          confidenceScore: analysisThesis.confidenceScore,
+          startPrice: analysis.quote?.price ?? analysis.thesisRecord?.initialPrice ?? null,
+          thesis: analysisThesis.thesis,
           entryTrigger: plan.entryTrigger,
           invalidation: plan.invalidation,
-          entryZone: thesis.setup?.entryZone,
-          stopLossTrigger: thesis.setup?.stopLoss,
-          takeProfitTrigger: thesis.setup?.takeProfit,
-          timeHorizon: thesis.timeHorizon,
+          entryZone: analysisThesis.setup?.entryZone,
+          stopLossTrigger: analysisThesis.setup?.stopLoss,
+          takeProfitTrigger: analysisThesis.setup?.takeProfit,
+          timeHorizon: analysisThesis.timeHorizon,
           watchConditions: plan.watchConditions,
-          riskExplanation: thesis.riskExplanation,
-          news: topNews,
-          traceId: result?.traceId ?? thesis.traceId,
+          riskExplanation: analysisThesis.riskExplanation,
+          news: analysisNews,
+          traceId: analysis.traceId ?? analysisThesis.traceId,
         }),
       });
 
@@ -520,13 +549,26 @@ export default function Home() {
       const entry = data.entry;
       setSavedEntry(entry);
       setWatchlistEntries((entries) => [entry, ...entries.filter((currentEntry) => currentEntry.symbol !== entry.symbol)]);
-      setAnalysisModalOpen(false);
+      setWatchlistDecisionMessage(
+        mode === 'auto'
+          ? 'Added to Watch List automatically because confidence is 75% or higher.'
+          : 'Added to Watch List.'
+      );
+      if (mode === 'manual') {
+        setAnalysisModalOpen(false);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not save this watchlist entry.';
       setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
     } finally {
       setSavingWatchlist(false);
     }
+  }
+
+  async function handleAddToWatchlist() {
+    if (!result) return;
+
+    await saveWatchlistForAnalysis(result, 'manual');
   }
 
   async function handleUpdateWatchlistStatus(entryId: string, status: WatchlistStatus) {
@@ -675,9 +717,7 @@ export default function Home() {
   const confidencePct = confidence === null ? null : Math.round(confidence * 100);
   const allSignals = result?.signalDetails ?? [];
   const topNews = result?.news?.filter((item) => item.headline).slice(0, 5) ?? [];
-  const featuredSignals = allSignals.filter((signal) =>
-    ['INTRADAY_MOMENTUM', 'VWAP_POSITION', 'EMA_ALIGNMENT', 'RSI_14', 'VOLUME_SPIKE', 'RANGE_BREAKOUT', 'SPREAD_LIQUIDITY', 'NEWS_SENTIMENT'].includes(signal.type ?? '')
-  );
+  const featuredSignals = getFeaturedSignals(allSignals);
   const tradePlan = thesis ? getTradePlan(thesis, featuredSignals) : null;
 
   return (
@@ -695,7 +735,7 @@ export default function Home() {
               </div>
             </div>
 
-            <form onSubmit={handleAnalyze} className="grid gap-3 lg:grid-cols-[auto_1fr_auto_auto] xl:min-w-[820px]">
+            <form onSubmit={handleAnalyze} className="grid gap-3 lg:grid-cols-[auto_1fr_auto] xl:min-w-[720px]">
               <div className="inline-grid grid-cols-2 rounded-lg border border-zinc-300 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-950">
                 {(['crypto', 'stock'] as AssetClass[]).map((asset) => (
                   <button
@@ -716,19 +756,6 @@ export default function Home() {
                 disabled={loading}
                 className="min-h-12 rounded-lg border border-zinc-300 bg-white px-4 text-lg font-bold uppercase outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 disabled:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-emerald-500 dark:focus:ring-emerald-500/20 dark:disabled:bg-zinc-800"
               />
-
-              <div className="inline-grid grid-cols-4 rounded-lg border border-zinc-300 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-950">
-                {TIMEFRAMES.map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setTimeframe(item)}
-                    className={`min-h-10 rounded-md px-3 text-xs font-bold uppercase transition ${timeframe === item ? 'bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-zinc-50' : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'}`}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
 
               <button
                 type="submit"
@@ -790,7 +817,7 @@ export default function Home() {
             onSelect={(nextSymbol) => {
               const nextAssetClass = nextSymbol.includes('/') ? 'crypto' : 'stock';
               setAssetClass(nextAssetClass);
-              void analyzeTicker(nextSymbol, nextAssetClass, timeframe);
+              void analyzeTicker(nextSymbol, nextAssetClass);
             }}
           />
 
@@ -837,6 +864,7 @@ export default function Home() {
             plan={tradePlan}
             saving={savingWatchlist}
             savedEntry={savedEntry}
+            decisionMessage={watchlistDecisionMessage}
             onAddToWatchlist={handleAddToWatchlist}
             onOpenDetails={() => setAnalysisModalOpen(true)}
           />
@@ -892,6 +920,7 @@ export default function Home() {
           plan={tradePlan}
           saving={savingWatchlist}
           savedEntry={savedEntry}
+          decisionMessage={watchlistDecisionMessage}
           onAddToWatchlist={handleAddToWatchlist}
           onClose={() => setAnalysisModalOpen(false)}
         />
@@ -991,7 +1020,7 @@ function DeskChartPanel({
               {instrument?.assetClass ?? 'market'}
             </span>
             <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold uppercase text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-              {instrument?.timeframe ?? '5m'}
+              {formatAnalysisTimeframe(instrument?.timeframe ?? '5m')}
             </span>
           </div>
           <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -1098,6 +1127,7 @@ function SetupTicket({
   plan,
   saving,
   savedEntry,
+  decisionMessage,
   onAddToWatchlist,
   onOpenDetails,
 }: {
@@ -1109,10 +1139,12 @@ function SetupTicket({
   plan: Required<TradePlan> | null;
   saving: boolean;
   savedEntry: SavedWatchlistEntry | null;
+  decisionMessage: string;
   onAddToWatchlist: () => void;
   onOpenDetails: () => void;
 }) {
   const bias = setup?.bias ?? (thesis?.direction?.toUpperCase().includes('BEAR') ? 'SHORT' : thesis?.direction?.toUpperCase().includes('BULL') ? 'LONG' : 'NEUTRAL');
+  const decision = getWatchlistDecision(confidencePct, savedEntry);
 
   return (
     <aside className={CARD_CLASS}>
@@ -1127,10 +1159,18 @@ function SetupTicket({
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3">
-        <MiniStat label="Type" value={setup?.setupType ?? 'NO_TRADE'} />
+        <MiniStat label="Strategy" value={getStrategy(thesis)} />
+        <MiniStat label="Trading Style" value={getTradingStyle(thesis)} />
+        <MiniStat label="Analysis Timeframe" value={getAnalysisTimeframe(thesis)} />
+        <MiniStat label="Setup Type" value={setup?.setupType ?? 'NO_TRADE'} />
         <MiniStat label="Confidence" value={confidencePct === null ? 'N/A' : `${confidencePct}%`} />
         <MiniStat label="Price" value={formatCurrency(quote?.price)} />
-        <MiniStat label="Hold" value={setup?.maxHoldTime ?? thesis?.timeHorizon ?? 'N/A'} />
+        <MiniStat label="Expected Hold" value={getExpectedHold(thesis)} />
+      </div>
+
+      <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-100">
+        <p className="text-xs font-bold uppercase">AI Analysis</p>
+        <p className="mt-2 text-sm font-semibold leading-6">{getAnalysisReason(thesis)}</p>
       </div>
 
       <div className="mt-5 grid gap-3">
@@ -1152,15 +1192,13 @@ function SetupTicket({
       )}
 
       <div className="mt-5 grid gap-3">
-        <button
-          type="button"
-          disabled={saving || Boolean(savedEntry) || !thesis}
-          onClick={onAddToWatchlist}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-        >
-          {savedEntry ? <CheckCircle2 className="h-4 w-4" /> : <BookmarkPlus className="h-4 w-4" />}
-          {savedEntry ? 'Saved' : saving ? 'Saving...' : 'Save Setup'}
-        </button>
+        <WatchlistDecisionAction
+          decision={decision}
+          saving={saving}
+          hasThesis={Boolean(thesis)}
+          message={decisionMessage}
+          onAddToWatchlist={onAddToWatchlist}
+        />
         <button
           type="button"
           disabled={!thesis}
@@ -1188,6 +1226,7 @@ function AnalysisDetailsModal({
   plan,
   saving,
   savedEntry,
+  decisionMessage,
   onAddToWatchlist,
   onClose,
 }: {
@@ -1204,10 +1243,12 @@ function AnalysisDetailsModal({
   plan: Required<TradePlan> | null;
   saving: boolean;
   savedEntry: SavedWatchlistEntry | null;
+  decisionMessage: string;
   onAddToWatchlist: () => void;
   onClose: () => void;
 }) {
   if (!open) return null;
+  const decision = getWatchlistDecision(confidencePct, savedEntry);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/60 p-4">
@@ -1295,6 +1336,20 @@ function AnalysisDetailsModal({
               </div>
             )}
 
+            {thesis && (
+              <Panel title="AI Analysis" icon={<Sparkles className="h-5 w-5" />}>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <MiniStat label="Strategy" value={getStrategy(thesis)} />
+                  <MiniStat label="Trading Style" value={getTradingStyle(thesis)} />
+                  <MiniStat label="Analysis Timeframe" value={getAnalysisTimeframe(thesis)} />
+                  <MiniStat label="Expected Hold" value={getExpectedHold(thesis)} />
+                </div>
+                <div className="mt-4">
+                  <PlanBlock label="Reason" value={getAnalysisReason(thesis)} />
+                </div>
+              </Panel>
+            )}
+
             <Panel title="Agent Action Plan" icon={<ClipboardList className="h-5 w-5" />}>
               {plan ? (
                 <div className="grid gap-4 md:grid-cols-3">
@@ -1331,15 +1386,13 @@ function AnalysisDetailsModal({
           >
             Close
           </button>
-          <button
-            type="button"
-            disabled={saving || Boolean(savedEntry) || !thesis}
-            onClick={onAddToWatchlist}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-          >
-            {savedEntry ? <CheckCircle2 className="h-4 w-4" /> : <BookmarkPlus className="h-4 w-4" />}
-            {savedEntry ? 'Added to Watchlist' : saving ? 'Adding...' : 'Add to Watchlist'}
-          </button>
+          <WatchlistDecisionAction
+            decision={decision}
+            saving={saving}
+            hasThesis={Boolean(thesis)}
+            message={decisionMessage}
+            onAddToWatchlist={onAddToWatchlist}
+          />
         </div>
       </div>
     </div>
@@ -1572,6 +1625,88 @@ function WatchlistCard({
         )}
       </div>
     </section>
+  );
+}
+
+type WatchlistDecision = 'auto-added' | 'added' | 'manual' | 'rejected' | 'waiting';
+
+function WatchlistDecisionAction({
+  decision,
+  saving,
+  hasThesis,
+  message,
+  onAddToWatchlist,
+}: {
+  decision: WatchlistDecision;
+  saving: boolean;
+  hasThesis: boolean;
+  message: string;
+  onAddToWatchlist: () => void;
+}) {
+  if (decision === 'auto-added') {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-900 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-100">
+        <div className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white">
+          <CheckCircle2 className="h-4 w-4" />
+          Added Automatically
+        </div>
+        <p className="mt-3 text-sm font-semibold leading-6">
+          {message || 'Added to Watch List automatically because confidence is 75% or higher.'}
+        </p>
+      </div>
+    );
+  }
+
+  if (decision === 'added') {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-900 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-100">
+        <div className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white">
+          <CheckCircle2 className="h-4 w-4" />
+          Added to Watch List
+        </div>
+        <p className="mt-3 text-sm font-semibold leading-6">
+          {message || 'This setup is now on your Watch List.'}
+        </p>
+      </div>
+    );
+  }
+
+  if (decision === 'manual') {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-950">
+        <p className="mb-3 text-sm font-semibold leading-6">
+          {message || 'This setup has moderate confidence. Review before adding to your Watch List.'}
+        </p>
+        <button
+          type="button"
+          disabled={saving || !hasThesis}
+          onClick={onAddToWatchlist}
+          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+        >
+          <BookmarkPlus className="h-4 w-4" />
+          {saving ? 'Adding...' : 'Add to Watch List'}
+        </button>
+      </div>
+    );
+  }
+
+  if (decision === 'rejected') {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
+        <div className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-red-700 px-4 text-sm font-bold text-white">
+          Rejected
+        </div>
+        <p className="mt-3 text-sm font-semibold leading-6">
+          {message || 'Rejected automatically because confidence is below 60%.'}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm font-semibold text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+      Run a setup scan to let the AI decide watchlist eligibility.
+    </div>
   );
 }
 
@@ -1935,6 +2070,84 @@ function FactorList({
       )}
     </section>
   );
+}
+
+function getConfidencePct(thesis?: TradingThesis) {
+  return typeof thesis?.confidenceScore === 'number' ? Math.round(thesis.confidenceScore * 100) : null;
+}
+
+function getWatchlistDecision(confidencePct: number | null, savedEntry: SavedWatchlistEntry | null): WatchlistDecision {
+  if (savedEntry && (confidencePct ?? 0) >= AUTO_WATCHLIST_CONFIDENCE) return 'auto-added';
+  if (savedEntry) return 'added';
+  if (confidencePct === null) return 'waiting';
+  if (confidencePct >= AUTO_WATCHLIST_CONFIDENCE) return 'auto-added';
+  if (confidencePct >= MANUAL_WATCHLIST_CONFIDENCE) return 'manual';
+  return 'rejected';
+}
+
+function getFeaturedSignals(signals: SignalDetail[]) {
+  return signals.filter((signal) =>
+    ['INTRADAY_MOMENTUM', 'VWAP_POSITION', 'EMA_ALIGNMENT', 'RSI_14', 'VOLUME_SPIKE', 'RANGE_BREAKOUT', 'SPREAD_LIQUIDITY', 'NEWS_SENTIMENT'].includes(signal.type ?? '')
+  );
+}
+
+function getStrategy(thesis?: TradingThesis) {
+  if (thesis?.strategy) return thesis.strategy;
+
+  const setupType = thesis?.setup?.setupType;
+  if (setupType && setupType !== 'NO_TRADE') {
+    return `${titleCase(setupType)} setup`;
+  }
+
+  return thesis ? 'AI watchlist review' : 'N/A';
+}
+
+function getTradingStyle(thesis?: TradingThesis) {
+  if (thesis?.tradingStyle) return thesis.tradingStyle;
+
+  const hold = getExpectedHold(thesis).toLowerCase();
+  if (hold.includes('minute') || hold.includes('hour') || hold.includes('intraday')) return 'Day Trading';
+  if (hold.includes('day') || hold.includes('week')) return 'Swing';
+
+  return thesis ? 'AI selected' : 'N/A';
+}
+
+function getAnalysisTimeframe(thesis?: TradingThesis) {
+  const value = thesis?.analysisTimeframe;
+  if (value) return formatAnalysisTimeframe(value);
+
+  return thesis ? 'Based on 5-minute chart' : 'N/A';
+}
+
+function getExpectedHold(thesis?: TradingThesis) {
+  return thesis?.expectedHold ?? thesis?.setup?.maxHoldTime ?? thesis?.timeHorizon ?? 'N/A';
+}
+
+function getAnalysisReason(thesis?: TradingThesis) {
+  if (!thesis) return 'Run a setup scan to let the AI choose the analysis approach.';
+  if (thesis.analysisReason) return thesis.analysisReason;
+
+  return `AI selected ${getTradingStyle(thesis).toLowerCase()} using ${getAnalysisTimeframe(thesis).toLowerCase()} because the current setup requires ${getStrategy(thesis).toLowerCase()} context.`;
+}
+
+function formatAnalysisTimeframe(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const labels: Record<string, string> = {
+    '1m': 'Based on 1-minute chart',
+    '5m': 'Based on 5-minute chart',
+    '15m': 'Based on 15-minute chart',
+    '1h': 'Based on 1-hour chart',
+    '1d': 'Based on daily chart',
+  };
+
+  return labels[normalized] ?? (normalized.includes('based on') ? value : `Based on ${value} chart`);
+}
+
+function titleCase(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function formatCurrency(value?: number) {

@@ -120,11 +120,14 @@ http://localhost:3000
 
 1. Open `http://localhost:3000`.
 2. Enter a stock ticker such as `NVDA`, `AAPL`, `TSLA`, `META`, or `AMZN`, or a crypto pair such as `BTC/USD`.
-3. Select the asset class and timeframe when needed.
-4. Click `Analyze`.
+3. Select the asset class: `crypto` or `stock`.
+4. Click `Scan Setup`.
 5. Review the quote, thesis, signals, setup, risk explanation, bullish factors, bearish factors, and headlines when provider data is available.
-6. Review the Trust Ledger card for the thesis record ID, generated time, expiration time, start price, evidence counts, and lifecycle status.
-7. Click `Add to Watchlist` to save the setup.
+6. Review the AI Analysis output. The AI decides strategy, trading style, analysis timeframe, expected hold, setup type, bias, confidence, entry zone, stop loss, take profit, risk/reward, and warnings.
+7. Review the watchlist decision:
+   - `75%` confidence or higher: the setup is added to the Watch List automatically.
+   - `60%` to `74%`: the setup is not auto-added; review it and click `Add to Watch List` if it is worth tracking.
+   - Below `60%`: the setup is rejected from watchlist tracking. It can still be reviewed as analysis history.
 8. Move a saved setup through the lifecycle:
    - Keep it as `Watching` while monitoring.
    - Open a paper trade when the setup triggers.
@@ -134,11 +137,11 @@ http://localhost:3000
 ## What To Verify Manually
 
 - The web app loads at `http://localhost:3000`.
-- `Analyze` returns an AI thesis with `agentStatus` equal to `AI_AGENT`.
+- `Scan Setup` returns an AI thesis with `agentStatus` equal to `AI_AGENT`.
 - The quote has a positive price and a visible source.
 - The signal list includes intraday indicators such as momentum, VWAP position, EMA alignment, RSI, range, spread/liquidity, and quote health.
-- The Trust Ledger appears after analysis and shows a persisted thesis record.
-- `Add to Watchlist` saves the setup.
+- The setup ticket shows AI-selected strategy, trading style, analysis timeframe, expected hold, setup type, bias, confidence, entry zone, stop loss, take profit, risk/reward, and warnings.
+- Watchlist actions follow confidence rules: `75%+` auto-adds, `60-74%` shows `Add to Watch List`, and below `60%` shows `Rejected`.
 - Paper trade open, mark-price update, and close-to-ledger actions work from the saved watchlist entry.
 
 ## Automated Tests
@@ -238,7 +241,7 @@ Analyze BTC:
 ```bash
 curl -s -X POST http://127.0.0.1:3001/api/setups/analyze \
   -H 'Content-Type: application/json' \
-  -d '{"symbol":"BTC/USD","assetClass":"crypto","timeframe":"5m"}'
+  -d '{"symbol":"BTC/USD","assetClass":"crypto"}'
 ```
 
 Poll a market snapshot:
@@ -272,6 +275,17 @@ Background automation is opt-in:
 AUTOMATION_ENABLED=true
 AUTOMATION_INTERVAL_MS=900000
 AUTOMATION_ENTRY_MOVE_PCT=0.01
+```
+
+On API startup, Shadow Trader can scan a configured stock and crypto universe, run the normal setup analysis, and add any setup with confidence at or above the configured threshold to the watchlist. The startup scan is enabled by default and can be tuned with:
+
+```env
+STARTUP_SCAN_ENABLED=true
+STARTUP_SCAN_STOCK_TICKERS=NVDA,AAPL,MSFT,TSLA,META
+STARTUP_SCAN_CRYPTO_TICKERS=BTC/USD,ETH/USD,SOL/USD
+STARTUP_SCAN_TICKERS=stock:AMD,crypto:BTC/USD
+STARTUP_SCAN_MIN_CONFIDENCE=0.75
+STARTUP_SCAN_TIMEFRAME=5m
 ```
 
 If `INTERNAL_API_KEY` is set and you call the Node API directly, include:

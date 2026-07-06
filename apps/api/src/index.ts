@@ -10,6 +10,7 @@ import automationRouter from './routes/automation';
 import { requireApiKey } from './middleware/apiKeyAuth';
 import { getDb } from './services/db';
 import { startAutomationScheduler } from './services/automationScheduler';
+import { startStartupScanner } from './services/startupScanner';
 
 dotenv.config({
   path: path.resolve(process.cwd(), "../../.env"),
@@ -75,4 +76,5 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Shadow Trader API running on port ${PORT}`);
   startAutomationScheduler();
+  startStartupScanner();
 });
