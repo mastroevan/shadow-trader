@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { signOut } from 'next-auth/react';
 import {
   Bar,
   BarChart,
@@ -25,6 +26,7 @@ import {
   ClipboardList,
   DatabaseZap,
   Layers3,
+  LogOut,
   Moon,
   Newspaper,
   RefreshCw,
@@ -33,6 +35,7 @@ import {
   Sparkles,
   Sun,
   Target,
+  Trash2,
   TrendingUp,
 } from 'lucide-react';
 
@@ -333,6 +336,9 @@ export default function Home() {
   const [livePolling, setLivePolling] = useState(false);
   const [resettingDemoData, setResettingDemoData] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
+  const [clearingLedger, setClearingLedger] = useState(false);
+  const [deletingLedgerId, setDeletingLedgerId] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [watchlistDecisionMessage, setWatchlistDecisionMessage] = useState('');
   const [error, setError] = useState('');
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -505,6 +511,63 @@ export default function Home() {
     } finally {
       setResettingDemoData(false);
     }
+  }
+
+  async function handleClearTrustLedger() {
+    const confirmed = window.confirm('Clear all trust ledger history? This cannot be undone.');
+
+    if (!confirmed) return;
+
+    setClearingLedger(true);
+    setError('');
+
+    try {
+      const response = await apiFetch(`${API_BASE_URL}/trust-ledger`, {
+        method: 'DELETE',
+        headers: apiHeaders(),
+      });
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
+        throw new Error(data.message ?? data.error ?? 'Could not clear the trust ledger.');
+      }
+
+      setLedgerEntries([]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not clear the trust ledger.';
+      setError(message === 'Failed to fetch' ? 'Could not reach the API. Make sure the backend is running on port 3001.' : message);
+    } finally {
+      setClearingLedger(false);
+    }
+  }
+
+  async function handleDeleteLedgerEntry(id: string) {
+    setDeletingLedgerId(id);
+    setError('');
+
+    try {
+      const response = await apiFetch(`${API_BASE_URL}/trust-ledger/${id}`, {
+        method: 'DELETE',
+        headers: apiHeaders(),
+      });
+
+      if (!response.ok && response.status !== 404) {
+        const data = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
+        throw new Error(data.message ?? data.error ?? 'Could not delete the ledger entry.');
+      }
+
+      setLedgerEntries((entries) => entries.filter((entry) => entry.id !== id));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not delete the ledger entry.';
+      setError(message === 'Failed to fetch' ? 'Could not reach the API. Make sure the backend is running on port 3001.' : message);
+    } finally {
+      setDeletingLedgerId(null);
+    }
+  }
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    await signOut({ callbackUrl: '/login' });
   }
 
   async function analyzeTicker(nextSymbol?: string, nextAssetClass = assetClass) {
@@ -955,6 +1018,17 @@ export default function Home() {
                   {darkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
                 </span>
               </button>
+
+              <button
+                type="button"
+                aria-label="Sign out"
+                title="Sign out"
+                disabled={loggingOut}
+                onClick={() => void handleLogout()}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 shadow-sm transition hover:border-red-400 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:border-red-700 dark:hover:text-red-300"
+              >
+                <LogOut className={`h-4 w-4 ${loggingOut ? 'animate-pulse' : ''}`} />
+              </button>
             </div>
           </div>
 
@@ -1064,7 +1138,13 @@ export default function Home() {
               onCloseTrade={handleCloseTrade}
             />
 
-            <TrustLedgerCard entries={ledgerEntries} />
+            <TrustLedgerCard
+              entries={ledgerEntries}
+              onClear={() => void handleClearTrustLedger()}
+              clearing={clearingLedger}
+              onDeleteEntry={(id) => void handleDeleteLedgerEntry(id)}
+              deletingId={deletingLedgerId}
+            />
           </div>
         </div>
       </div>
@@ -2217,24 +2297,50 @@ function Toast({ toast, onClose }: { toast: ToastState; onClose: () => void }) {
   );
 }
 
-function TrustLedgerCard({ entries }: { entries: LedgerEntry[] }) {
+function TrustLedgerCard({
+  entries,
+  onClear,
+  clearing,
+  onDeleteEntry,
+  deletingId,
+}: {
+  entries: LedgerEntry[];
+  onClear: () => void;
+  clearing: boolean;
+  onDeleteEntry: (id: string) => void;
+  deletingId: string | null;
+}) {
   const insights = getTrustLedgerInsights(entries);
 
   return (
     <section className={CARD_CLASS}>
-      <div className="flex items-center gap-2">
-        <div className="rounded-lg bg-violet-50 p-2 text-violet-700 shadow-sm dark:bg-violet-500/10 dark:text-violet-300">
-          <ShieldCheck className="h-5 w-5" />
-        </div>
-        <div>
-          <p className="text-sm font-bold uppercase text-zinc-500 dark:text-zinc-400">Trust Ledger</p>
-          <div className="mt-1 flex flex-wrap items-center gap-3">
-            <h3 className="text-2xl font-bold">Closed setup record</h3>
-            <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">
-              {entries.length} finalized
-            </span>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="rounded-lg bg-violet-50 p-2 text-violet-700 shadow-sm dark:bg-violet-500/10 dark:text-violet-300">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-sm font-bold uppercase text-zinc-500 dark:text-zinc-400">Trust Ledger</p>
+            <div className="mt-1 flex flex-wrap items-center gap-3">
+              <h3 className="text-2xl font-bold">Closed setup record</h3>
+              <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">
+                {entries.length} finalized
+              </span>
+            </div>
           </div>
         </div>
+
+        {entries.length > 0 && (
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={clearing}
+            className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 shadow-sm transition hover:border-red-400 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300 dark:hover:border-red-700 dark:hover:bg-red-950"
+          >
+            <Trash2 className={`h-4 w-4 ${clearing ? 'animate-pulse' : ''}`} />
+            {clearing ? 'Clearing...' : 'Clear history'}
+          </button>
+        )}
       </div>
 
       <div className="mt-6 grid gap-3 md:grid-cols-4">
@@ -2269,7 +2375,19 @@ function TrustLedgerCard({ entries }: { entries: LedgerEntry[] }) {
                     </span>
                   )}
                 </div>
-                <span className="text-xs font-semibold uppercase text-zinc-500 dark:text-zinc-400">{formatDate(entry.updatedAt)}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold uppercase text-zinc-500 dark:text-zinc-400">{formatDate(entry.updatedAt)}</span>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${entry.symbol} ledger entry`}
+                    title="Delete entry"
+                    disabled={deletingId === entry.id}
+                    onClick={() => onDeleteEntry(entry.id)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 shadow-sm transition hover:border-red-400 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-red-700 dark:hover:text-red-300"
+                  >
+                    <Trash2 className={`h-3.5 w-3.5 ${deletingId === entry.id ? 'animate-pulse' : ''}`} />
+                  </button>
+                </div>
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-5">

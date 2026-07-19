@@ -273,6 +273,29 @@ export async function deleteWatchlistEntry(id: string): Promise<boolean> {
   return result.count > 0;
 }
 
+export async function deleteLedgerEntry(id: string): Promise<boolean> {
+  const db = await getDb();
+  const result = await db.tradeLifecycleEntry.deleteMany({
+    where: {
+      id,
+      kind: KIND_LEDGER,
+    },
+  });
+
+  return result.count > 0;
+}
+
+export async function clearLedgerEntries(): Promise<number> {
+  const db = await getDb();
+  const result = await db.tradeLifecycleEntry.deleteMany({
+    where: {
+      kind: KIND_LEDGER,
+    },
+  });
+
+  return result.count;
+}
+
 export async function openPaperTradeEntry(
   id: string,
   input: {

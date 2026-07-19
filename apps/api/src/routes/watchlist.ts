@@ -1,6 +1,8 @@
 import { Router } from "express";
 import {
+  clearLedgerEntries,
   closeTradeEntry,
+  deleteLedgerEntry,
   deleteWatchlistEntry,
   listLedgerEntries,
   listTradeEntries,
@@ -213,6 +215,25 @@ router.delete("/watchlist/:id", async (req, res) => {
   }
 
   return res.status(204).send();
+});
+
+router.delete("/trust-ledger/:id", async (req, res) => {
+  const deleted = await deleteLedgerEntry(req.params.id);
+
+  if (!deleted) {
+    return res.status(404).json({
+      error: "LEDGER_ENTRY_NOT_FOUND",
+      message: "No trust ledger entry was found for that id.",
+    });
+  }
+
+  return res.status(204).send();
+});
+
+router.delete("/trust-ledger", async (_req, res) => {
+  const deletedCount = await clearLedgerEntries();
+
+  return res.json({ deletedCount });
 });
 
 export default router;
