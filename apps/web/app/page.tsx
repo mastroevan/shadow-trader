@@ -292,6 +292,22 @@ function apiHeaders() {
   };
 }
 
+function redirectToLogin() {
+  const callbackUrl = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+  window.location.href = `/login?callbackUrl=${callbackUrl}`;
+}
+
+async function apiFetch(input: string, init?: RequestInit) {
+  const response = await fetch(input, init);
+
+  if (response.status === 401) {
+    redirectToLogin();
+    throw new Error('Sign in required.');
+  }
+
+  return response;
+}
+
 export default function Home() {
   const [darkMode, setDarkMode] = useState(false);
   const [themeLoaded, setThemeLoaded] = useState(false);
@@ -364,9 +380,9 @@ export default function Home() {
 
     try {
       const [watchlistResponse, tradeResponse, ledgerResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/watchlist`, { headers: apiHeaders() }),
-        fetch(`${API_BASE_URL}/trade-list`, { headers: apiHeaders() }),
-        fetch(`${API_BASE_URL}/trust-ledger`, { headers: apiHeaders() }),
+        apiFetch(`${API_BASE_URL}/watchlist`, { headers: apiHeaders() }),
+        apiFetch(`${API_BASE_URL}/trade-list`, { headers: apiHeaders() }),
+        apiFetch(`${API_BASE_URL}/trust-ledger`, { headers: apiHeaders() }),
       ]);
 
       if (watchlistResponse.ok) {
@@ -447,7 +463,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/dev/reset-demo-data`, {
+      const response = await apiFetch(`${API_BASE_URL}/dev/reset-demo-data`, {
         method: 'POST',
         headers: apiHeaders(),
       });
@@ -508,7 +524,7 @@ export default function Home() {
     setAnalysisModalOpen(false);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/setups/analyze`, {
+      const response = await apiFetch(`${API_BASE_URL}/setups/analyze`, {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({ symbol: cleanSymbol, assetClass: nextAssetClass }),
@@ -548,7 +564,7 @@ export default function Home() {
     setLivePolling(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/market/snapshot`, {
+      const response = await apiFetch(`${API_BASE_URL}/market/snapshot`, {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({
@@ -614,7 +630,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/watchlist`, {
+      const response = await apiFetch(`${API_BASE_URL}/watchlist`, {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({
@@ -677,7 +693,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/watchlist/${entryId}/status`, {
+      const response = await apiFetch(`${API_BASE_URL}/watchlist/${entryId}/status`, {
         method: 'PATCH',
         headers: apiHeaders(),
         body: JSON.stringify({ status }),
@@ -717,7 +733,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/watchlist/${entry.id}/paper-trade`, {
+      const response = await apiFetch(`${API_BASE_URL}/watchlist/${entry.id}/paper-trade`, {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({
@@ -756,7 +772,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/watchlist/${entry.id}/skip-confirmation`, {
+      const response = await apiFetch(`${API_BASE_URL}/watchlist/${entry.id}/skip-confirmation`, {
         method: 'POST',
         headers: apiHeaders(),
       });
@@ -794,7 +810,7 @@ export default function Home() {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/paper-trades/${entryId}`, {
+      const response = await apiFetch(`${API_BASE_URL}/paper-trades/${entryId}`, {
         method: 'PATCH',
         headers: apiHeaders(),
         body: JSON.stringify({ currentPrice }),
@@ -821,7 +837,7 @@ export default function Home() {
 
     try {
       const trade = tradeEntries.find((entry) => entry.id === entryId);
-      const response = await fetch(`${API_BASE_URL}/trade-list/${entryId}/close`, {
+      const response = await apiFetch(`${API_BASE_URL}/trade-list/${entryId}/close`, {
         method: 'PATCH',
         headers: apiHeaders(),
         body: JSON.stringify({
