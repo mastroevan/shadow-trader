@@ -1,5 +1,7 @@
 export const WATCHLIST_STATUSES = [
   "Watching",
+  "Triggered Review",
+  "Pending Confirmation",
   "Triggered",
   "Invalidated",
   "Expired",
@@ -32,6 +34,8 @@ export function normalizeTimeHorizon(value: unknown): string {
 
 export function normalizeWatchlistStatus(value: unknown): WatchlistStatus {
   const status = String(value ?? "").trim().toLowerCase();
+
+  if (status === "pending confirmation") return "Triggered Review";
 
   return (
     WATCHLIST_STATUSES.find((candidate) => candidate.toLowerCase() === status) ??

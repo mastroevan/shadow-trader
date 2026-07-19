@@ -7,6 +7,7 @@ import {
   listWatchlistEntries,
   moveWatchlistEntry,
   openPaperTradeEntry,
+  skipPendingWatchlistConfirmation,
   updatePaperTradeEntry,
   upsertWatchlistEntry,
 } from "../services/watchlist";
@@ -85,6 +86,13 @@ router.post("/watchlist", async (req, res) => {
       : [],
     traceId:
       typeof req.body.traceId === "string" ? req.body.traceId : undefined,
+    volumeConfirmation:
+      typeof req.body.volumeConfirmation === "boolean" ? req.body.volumeConfirmation : null,
+    trendStrength: parseNullableNumber(req.body.trendStrength),
+    marketCondition:
+      typeof req.body.marketCondition === "string" ? req.body.marketCondition : undefined,
+    triggerType:
+      typeof req.body.triggerType === "string" ? req.body.triggerType : undefined,
     timeHorizon: normalizeTimeHorizon(req.body.timeHorizon),
     status: "Watching",
   });
@@ -93,13 +101,18 @@ router.post("/watchlist", async (req, res) => {
 });
 
 router.patch("/watchlist/:id/status", async (req, res) => {
-  if (!isWatchlistStatus(req.body.status) || req.body.status === "Watching") {
+  const nextStatus = normalizeWatchlistStatus(req.body.status);
+  if (
+    !isWatchlistStatus(req.body.status) ||
+    nextStatus === "Watching" ||
+    nextStatus === "Triggered Review" ||
+    nextStatus === "Pending Confirmation"
+  ) {
     return res.status(400).json({
       error: "INVALID_WATCHLIST_STATUS",
       message: "Status must be Triggered, Invalidated, or Expired.",
     });
   }
-  const nextStatus = normalizeWatchlistStatus(req.body.status);
   const move = await moveWatchlistEntry(req.params.id, nextStatus);
 
   if (!move) {
@@ -126,11 +139,24 @@ router.post("/watchlist/:id/paper-trade", async (req, res) => {
   if (!move) {
     return res.status(404).json({
       error: "WATCHLIST_ENTRY_NOT_FOUND",
-      message: "No watchlist entry was found for that id.",
+      message: "No approved watchlist entry was found for that id.",
     });
   }
 
   return res.status(201).json({ entry: move.entry });
+});
+
+router.post("/watchlist/:id/skip-confirmation", async (req, res) => {
+  const entry = await skipPendingWatchlistConfirmation(req.params.id);
+
+  if (!entry) {
+    return res.status(404).json({
+      error: "WATCHLIST_ENTRY_NOT_FOUND",
+      message: "No pending watchlist entry was found for that id.",
+    });
+  }
+
+  return res.json({ entry });
 });
 
 router.patch("/paper-trades/:id", async (req, res) => {

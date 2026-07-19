@@ -5,6 +5,11 @@ import {
   normalizeWatchlistStatus,
   type WatchlistStatus,
 } from "./watchlistFields";
+import {
+  evaluateTradeGate,
+  type GateStatus,
+  type TradeGateEvaluation,
+} from "./tradeGatekeeper";
 
 export type WatchlistEntry = {
   id: string;
@@ -29,6 +34,25 @@ export type WatchlistEntry = {
   traceId?: string;
   timeHorizon: string;
   status: WatchlistStatus;
+  entryPrice?: number | null;
+  currentPrice?: number | null;
+  stopLoss?: number | null;
+  takeProfit?: number | null;
+  riskRewardRatio?: number | null;
+  volumeConfirmation?: boolean | null;
+  trendStrength?: number | null;
+  marketCondition?: string;
+  triggerType?: string;
+  positionSize?: number | null;
+  maxDollarRisk?: number | null;
+  riskPerShare?: number | null;
+  gateStatus?: GateStatus;
+  gateReasons?: string[];
+  triggerPrice?: number | null;
+  triggeredAt?: string;
+  triggerReason?: string;
+  triggerWarning?: string;
+  triggerWarningAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -50,6 +74,8 @@ export type TradeEntry = WatchlistEntry & {
   takeProfit: number | null;
   fees: number | null;
   slippage: number | null;
+  stopLossHit: boolean;
+  stopLossHitAt?: string;
   notes: string;
 };
 
@@ -71,6 +97,11 @@ export type LedgerEntry = WatchlistEntry & {
   profitLoss?: number | null;
   profitLossPercent?: number | null;
   outcome?: "Win" | "Loss";
+  pnl?: number | null;
+  closedAt?: string;
+  lossReason?: string;
+  stopLossHit?: boolean;
+  timeInTrade?: string;
   notes?: string;
 };
 
@@ -83,7 +114,9 @@ export async function listWatchlistEntries(): Promise<WatchlistEntry[]> {
   const rows = await db.tradeLifecycleEntry.findMany({
     where: {
       kind: KIND_WATCHLIST,
-      status: "Watching",
+      status: {
+        in: ["Watching", "Triggered Review", "Pending Confirmation"],
+      },
     },
     orderBy: {
       updatedAt: "desc",
@@ -170,7 +203,7 @@ export async function moveWatchlistEntry(
   id: string,
   status: WatchlistStatus
 ): Promise<{ entry: TradeEntry | LedgerEntry; previousEntry: WatchlistEntry } | null> {
-  if (status === "Watching") return null;
+  if (status === "Watching" || status === "Triggered Review" || status === "Pending Confirmation") return null;
 
   const db = await getDb();
   const row = await db.tradeLifecycleEntry.findUnique({
@@ -260,6 +293,7 @@ export async function openPaperTradeEntry(
   if (!row || row.kind !== KIND_WATCHLIST) return null;
 
   const previousEntry = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
+  if (previousEntry.gateStatus !== "APPROVED") return null;
   const trade = buildTradeEntry(previousEntry, input);
 
   await db.$transaction([
@@ -272,6 +306,97 @@ export async function openPaperTradeEntry(
   ]);
 
   return { entry: trade, previousEntry };
+}
+
+export async function markWatchlistEntryPendingConfirmation(
+  id: string,
+  input: {
+    triggerPrice: number;
+    triggerReason: string;
+  }
+): Promise<WatchlistEntry | null> {
+  const db = await getDb();
+  const [row, ledgerEntries] = await Promise.all([
+    db.tradeLifecycleEntry.findUnique({ where: { id } }),
+    listLedgerEntries(),
+  ]);
+
+  if (!row || row.kind !== KIND_WATCHLIST || row.status !== "Watching") return null;
+
+  const current = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
+  const entryPrice = input.triggerPrice;
+  const stopLoss = current.stopLoss ?? parseFirstPriceLevel(current.stopLossTrigger);
+  const takeProfit = current.takeProfit ?? parseFirstPriceLevel(current.takeProfitTrigger);
+  const gate = evaluateTradeGate({
+    symbol: current.symbol,
+    direction: current.direction,
+    entryPrice,
+    stopLoss,
+    takeProfit,
+    confidenceScore: current.confidenceScore,
+    volumeConfirmation: current.volumeConfirmation,
+    trendStrength: current.trendStrength,
+    closedTrades: ledgerEntries,
+  });
+  const now = new Date().toISOString();
+  const nextEntry: WatchlistEntry = {
+    ...current,
+    status: "Triggered Review",
+    entryPrice,
+    currentPrice: entryPrice,
+    stopLoss,
+    takeProfit,
+    riskRewardRatio: gate.calculated.riskRewardRatio,
+    positionSize: gate.calculated.positionSize,
+    maxDollarRisk: gate.calculated.maxDollarRisk,
+    riskPerShare: gate.calculated.riskPerShare,
+    gateStatus: gate.approved ? "APPROVED" : "REJECTED",
+    gateReasons: gate.reasons,
+    triggerPrice: input.triggerPrice,
+    triggeredAt: now,
+    triggerReason: input.triggerReason,
+    updatedAt: now,
+  };
+
+  await db.tradeLifecycleEntry.update({
+    where: { id },
+    data: lifecycleRowUpdate(KIND_WATCHLIST, nextEntry),
+  });
+
+  return nextEntry;
+}
+
+export async function skipPendingWatchlistConfirmation(id: string): Promise<WatchlistEntry | null> {
+  const db = await getDb();
+  const row = await db.tradeLifecycleEntry.findUnique({
+    where: { id },
+  });
+
+  if (!row || row.kind !== KIND_WATCHLIST || (row.status !== "Triggered Review" && row.status !== "Pending Confirmation")) return null;
+
+  const current = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
+  const nextEntry: WatchlistEntry = {
+    ...current,
+    status: "Watching",
+    entryPrice: null,
+    currentPrice: null,
+    positionSize: null,
+    gateStatus: undefined,
+    gateReasons: [],
+    triggerPrice: null,
+    triggeredAt: undefined,
+    triggerReason: undefined,
+    triggerWarning: undefined,
+    triggerWarningAt: undefined,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await db.tradeLifecycleEntry.update({
+    where: { id },
+    data: lifecycleRowUpdate(KIND_WATCHLIST, nextEntry),
+  });
+
+  return nextEntry;
 }
 
 export async function updatePaperTradeEntry(
@@ -292,13 +417,17 @@ export async function updatePaperTradeEntry(
 
   const current = normalizeTradeEntry(parsePayload<TradeEntry>(row.payloadJson));
   const nextPrice = input.currentPrice ?? current.currentPrice ?? current.entryPrice;
+  const stopLossHit = isStopLossHit(current, nextPrice);
+  const now = new Date().toISOString();
   const nextTrade = withPaperTradeProfit({
     ...current,
     currentPrice: nextPrice,
     notes: input.notes ?? current.notes,
     stopLoss: input.stopLoss ?? current.stopLoss,
     takeProfit: input.takeProfit ?? current.takeProfit,
-    updatedAt: new Date().toISOString(),
+    stopLossHit: current.stopLossHit || stopLossHit,
+    stopLossHitAt: current.stopLossHitAt ?? (stopLossHit ? now : undefined),
+    updatedAt: now,
   });
 
   await db.tradeLifecycleEntry.update({
@@ -324,18 +453,24 @@ export async function closeTradeEntry(
   const trade = normalizeTradeEntry(parsePayload<TradeEntry>(row.payloadJson));
   const exitPrice = input.exitPrice ?? trade.currentPrice ?? null;
   const profit = calculatePaperTradeProfit(trade, exitPrice);
+  const closedAt = new Date().toISOString();
 
   const ledgerEntry: LedgerEntry = {
     ...trade,
     ledgerId: randomUUID(),
     recordType: "Closed Trade",
-    exitDate: new Date().toISOString(),
+    exitDate: closedAt,
+    closedAt,
     exitPrice,
     profitLoss: profit.profitLoss,
+    pnl: profit.profitLoss,
     profitLossPercent: profit.profitLossPercent,
     outcome,
+    lossReason: outcome === "Loss" ? buildLossReason(trade) : undefined,
+    stopLossHit: trade.stopLossHit,
+    timeInTrade: calculateTimeInTrade(trade.entryDate, closedAt),
     notes: input.notes ?? trade.notes,
-    updatedAt: new Date().toISOString(),
+    updatedAt: closedAt,
   };
 
   await db.$transaction([
@@ -366,15 +501,17 @@ function buildTradeEntry(
     ...entry,
     status: "Triggered",
     entryDate: new Date().toISOString(),
-    entryPrice: input.entryPrice ?? entry.startPrice,
-    currentPrice: input.entryPrice ?? entry.startPrice,
+    entryPrice: input.entryPrice ?? entry.triggerPrice ?? entry.startPrice,
+    currentPrice: input.entryPrice ?? entry.triggerPrice ?? entry.startPrice,
     currentProfitLoss: null,
     currentProfitLossPercent: null,
-    quantity: input.quantity ?? 1,
-    stopLoss: input.stopLoss ?? parseFirstPriceLevel(entry.stopLossTrigger),
-    takeProfit: input.takeProfit ?? parseFirstPriceLevel(entry.takeProfitTrigger),
+    quantity: input.quantity ?? entry.positionSize ?? 20,
+    stopLoss: input.stopLoss ?? entry.stopLoss ?? parseFirstPriceLevel(entry.stopLossTrigger),
+    takeProfit: input.takeProfit ?? entry.takeProfit ?? parseFirstPriceLevel(entry.takeProfitTrigger),
+    positionSize: input.quantity ?? entry.positionSize ?? 20,
     fees: input.fees ?? 0,
     slippage: input.slippage ?? 0,
+    stopLossHit: false,
     notes: input.notes ?? "",
     updatedAt: new Date().toISOString(),
   });
@@ -414,6 +551,29 @@ function normalizeStoredEntry(entry: WatchlistEntry): WatchlistEntry {
       typeof entry.stopLossTrigger === "string" ? entry.stopLossTrigger : undefined,
     takeProfitTrigger:
       typeof entry.takeProfitTrigger === "string" ? entry.takeProfitTrigger : undefined,
+    entryPrice: normalizeNumber(entry.entryPrice),
+    currentPrice: normalizeNumber(entry.currentPrice),
+    stopLoss: normalizeNumber(entry.stopLoss),
+    takeProfit: normalizeNumber(entry.takeProfit),
+    riskRewardRatio: normalizeNumber(entry.riskRewardRatio),
+    volumeConfirmation:
+      typeof entry.volumeConfirmation === "boolean" ? entry.volumeConfirmation : null,
+    trendStrength: normalizeNumber(entry.trendStrength),
+    marketCondition: typeof entry.marketCondition === "string" ? entry.marketCondition : undefined,
+    triggerType: typeof entry.triggerType === "string" ? entry.triggerType : undefined,
+    positionSize: normalizeNumber(entry.positionSize),
+    maxDollarRisk: normalizeNumber(entry.maxDollarRisk),
+    riskPerShare: normalizeNumber(entry.riskPerShare),
+    gateStatus: entry.gateStatus === "APPROVED" || entry.gateStatus === "REJECTED" ? entry.gateStatus : undefined,
+    gateReasons: Array.isArray(entry.gateReasons) ? entry.gateReasons.map(String) : [],
+    triggerPrice:
+      typeof entry.triggerPrice === "number" && Number.isFinite(entry.triggerPrice)
+        ? entry.triggerPrice
+        : null,
+    triggeredAt: typeof entry.triggeredAt === "string" ? entry.triggeredAt : undefined,
+    triggerReason: typeof entry.triggerReason === "string" ? entry.triggerReason : undefined,
+    triggerWarning: typeof entry.triggerWarning === "string" ? entry.triggerWarning : undefined,
+    triggerWarningAt: typeof entry.triggerWarningAt === "string" ? entry.triggerWarningAt : undefined,
     news: Array.isArray(entry.news)
       ? entry.news.map((item) => ({
           headline: typeof item?.headline === "string" ? item.headline : undefined,
@@ -438,10 +598,13 @@ function normalizeTradeEntry(entry: TradeEntry): TradeEntry {
     entryPrice: typeof entry.entryPrice === "number" ? entry.entryPrice : normalized.startPrice,
     currentPrice: typeof entry.currentPrice === "number" ? entry.currentPrice : normalized.startPrice,
     quantity: typeof entry.quantity === "number" ? entry.quantity : 1,
-    stopLoss: typeof entry.stopLoss === "number" ? entry.stopLoss : null,
-    takeProfit: typeof entry.takeProfit === "number" ? entry.takeProfit : null,
+    stopLoss: typeof entry.stopLoss === "number" ? entry.stopLoss : normalized.stopLoss ?? null,
+    takeProfit: typeof entry.takeProfit === "number" ? entry.takeProfit : normalized.takeProfit ?? null,
     fees: typeof entry.fees === "number" ? entry.fees : 0,
     slippage: typeof entry.slippage === "number" ? entry.slippage : 0,
+    positionSize: typeof entry.positionSize === "number" ? entry.positionSize : entry.quantity ?? normalized.positionSize ?? null,
+    stopLossHit: entry.stopLossHit === true,
+    stopLossHitAt: typeof entry.stopLossHitAt === "string" ? entry.stopLossHitAt : undefined,
     notes: entry.notes ?? "",
   };
 
@@ -462,7 +625,7 @@ function dedupeActiveWatchlist(entries: WatchlistEntry[]) {
 
   for (const entry of entries) {
     const symbol = entry.symbol.toUpperCase();
-    if (entry.status !== "Watching" || seen.has(symbol)) continue;
+    if ((entry.status !== "Watching" && entry.status !== "Triggered Review" && entry.status !== "Pending Confirmation") || seen.has(symbol)) continue;
     seen.add(symbol);
     deduped.push({ ...entry, symbol });
   }
@@ -498,6 +661,10 @@ function parsePayload<T>(payloadJson: string): T {
   return JSON.parse(payloadJson) as T;
 }
 
+function normalizeNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function withPaperTradeProfit<T extends TradeEntry>(trade: T): T {
   const profit = calculatePaperTradeProfit(trade, trade.currentPrice);
 
@@ -530,9 +697,11 @@ function calculatePaperTradeProfit(
   const quantity = typeof trade.quantity === "number" ? trade.quantity : 1;
   const fees = typeof trade.fees === "number" ? trade.fees : 0;
   const slippage = typeof trade.slippage === "number" ? trade.slippage : 0;
-  const directionMultiplier = trade.direction?.toUpperCase().includes("BEAR")
-    ? -1
-    : 1;
+  const normalizedDirection = trade.direction?.toUpperCase() ?? "";
+  const directionMultiplier =
+    normalizedDirection.includes("BEAR") || normalizedDirection.includes("SHORT")
+      ? -1
+      : 1;
   const grossProfitLoss = (price - entryPrice) * quantity * directionMultiplier;
   const profitLoss = grossProfitLoss - fees - slippage;
   const basis = entryPrice * quantity;
@@ -541,6 +710,50 @@ function calculatePaperTradeProfit(
     profitLoss,
     profitLossPercent: basis !== 0 ? profitLoss / basis : null,
   };
+}
+
+function isStopLossHit(trade: TradeEntry, price?: number | null) {
+  if (typeof price !== "number" || typeof trade.stopLoss !== "number") return false;
+
+  const normalizedDirection = trade.direction?.toUpperCase() ?? "";
+  const isShort = normalizedDirection.includes("BEAR") || normalizedDirection.includes("SHORT");
+
+  return isShort ? price >= trade.stopLoss : price <= trade.stopLoss;
+}
+
+function buildLossReason(trade: TradeEntry) {
+  if (typeof trade.riskRewardRatio === "number" && trade.riskRewardRatio < 2) {
+    return "Poor risk/reward setup";
+  }
+
+  if (trade.volumeConfirmation === false) {
+    return "Weak or missing volume confirmation";
+  }
+
+  if (typeof trade.confidenceScore === "number" && trade.confidenceScore < 0.75) {
+    return "Confidence score was below preferred threshold";
+  }
+
+  if (trade.stopLossHit) {
+    return "Stop loss was hit";
+  }
+
+  return "Trade moved against thesis";
+}
+
+function calculateTimeInTrade(entryDate?: string | null, closedAt?: string) {
+  if (!entryDate || !closedAt) return undefined;
+
+  const start = new Date(entryDate).getTime();
+  const end = new Date(closedAt).getTime();
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return undefined;
+
+  const totalMinutes = Math.round((end - start) / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${hours}h ${minutes}m`;
 }
 
 function parseFirstPriceLevel(value?: string): number | null {

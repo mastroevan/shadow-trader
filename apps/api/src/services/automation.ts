@@ -3,7 +3,7 @@ import {
   closeTradeEntry,
   listTradeEntries,
   listWatchlistEntries,
-  openPaperTradeEntry,
+  markWatchlistEntryPendingConfirmation,
   updatePaperTradeEntry,
   type TradeEntry,
   type WatchlistEntry,
@@ -14,6 +14,13 @@ import { resolveInstrument } from "../utils/symbols";
 export type AutomationAction =
   | {
       type: "ENTRY_TRIGGERED";
+      symbol: string;
+      entryId: string;
+      price: number;
+      reason: string;
+    }
+  | {
+      type: "ENTRY_TRIGGER_INVALID";
       symbol: string;
       entryId: string;
       price: number;
@@ -32,6 +39,13 @@ export type AutomationAction =
       symbol: string;
       entryId: string;
       price: number;
+    }
+  | {
+      type: "STOP_LOSS_HIT";
+      symbol: string;
+      entryId: string;
+      price: number;
+      reason: string;
     };
 
 export type AutomationRunResult = {
@@ -67,17 +81,21 @@ export async function runTriggerAutomation(): Promise<AutomationRunResult> {
 
   for (const entry of watchlistEntries) {
     try {
+      if (entry.status !== "Watching") continue;
+
       const price = await getLatestPrice(entry.symbol);
       const trigger = evaluateEntryTrigger(entry, price);
 
       if (!trigger.triggered) continue;
 
-      const opened = await openPaperTradeEntry(entry.id, {
-        entryPrice: price,
-        notes: `Automation opened this paper trade: ${trigger.reason}`,
+      const levels = getTradeLevels(entry, price);
+      const pending = await markWatchlistEntryPendingConfirmation(entry.id, {
+        triggerPrice: price,
+        triggerReason: trigger.reason,
       });
 
-      if (opened) {
+      if (pending) {
+        await sendTriggerNotification(pending, levels);
         result.actions.push({
           type: "ENTRY_TRIGGERED",
           symbol: entry.symbol,
@@ -99,6 +117,17 @@ export async function runTriggerAutomation(): Promise<AutomationRunResult> {
       });
       const currentTrade = marked ?? trade;
       const exit = evaluateExitTrigger(currentTrade, price);
+
+      if (currentTrade.stopLossHit) {
+        result.actions.push({
+          type: "STOP_LOSS_HIT",
+          symbol: trade.symbol,
+          entryId: trade.id,
+          price,
+          reason: exit.reason || `price ${formatPrice(price)} reached stop ${formatPrice(currentTrade.stopLoss)}`,
+        });
+        continue;
+      }
 
       if (!exit.triggered) {
         result.actions.push({
@@ -200,6 +229,57 @@ function evaluateExitTrigger(trade: TradeEntry, price: number) {
   return { triggered: false, outcome: "Loss" as const, reason: "" };
 }
 
+function getTradeLevels(entry: WatchlistEntry, triggerPrice: number) {
+  return {
+    entryPrice: triggerPrice,
+    stop: parsePriceLevels(entry.stopLossTrigger)[0] ?? null,
+    target: parsePriceLevels(entry.takeProfitTrigger)[0] ?? null,
+  };
+}
+
+async function sendTriggerNotification(
+  entry: WatchlistEntry,
+  levels: { entryPrice: number; stop: number | null; target: number | null }
+) {
+  const message = [
+    `Trade setup triggered: ${entry.symbol}`,
+    `Entry: ${formatPrice(levels.entryPrice)} | Stop: ${formatPrice(levels.stop)} | Target: ${formatPrice(levels.target)}`,
+  ].join("\n");
+
+  try {
+    if (process.env.DISCORD_WEBHOOK_URL) {
+      await fetch(process.env.DISCORD_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: message }),
+      });
+      return;
+    }
+
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const from = process.env.TWILIO_FROM_NUMBER;
+    const to = process.env.TWILIO_TO_NUMBER;
+
+    if (accountSid && authToken && from && to) {
+      await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          From: from,
+          To: to,
+          Body: message,
+        }),
+      });
+    }
+  } catch (error) {
+    console.warn(`Trigger notification failed for ${entry.symbol}:`, error);
+  }
+}
+
 async function getLatestPrice(symbol: string): Promise<number> {
   const instrument = resolveInstrument({ symbol });
   const quote =
@@ -265,7 +345,9 @@ function parsePriceLevels(value?: string): number[] {
 }
 
 function getDirection(direction: string): "long" | "short" {
-  return direction.toUpperCase().includes("BEAR") ? "short" : "long";
+  const normalized = direction.toUpperCase();
+
+  return normalized.includes("BEAR") || normalized.includes("SHORT") ? "short" : "long";
 }
 
 function getEntryMovePct() {
@@ -283,7 +365,9 @@ function errorFor(symbol: string, error: unknown) {
   };
 }
 
-function formatPrice(price: number) {
+function formatPrice(price: number | null) {
+  if (typeof price !== "number") return "N/A";
+
   return `$${price.toFixed(price >= 10 ? 2 : 4)}`;
 }
 

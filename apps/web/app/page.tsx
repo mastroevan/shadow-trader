@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -168,6 +168,25 @@ type SavedWatchlistEntry = {
   traceId?: string;
   timeHorizon: string;
   status: WatchlistStatus;
+  entryPrice?: number | null;
+  currentPrice?: number | null;
+  stopLoss?: number | null;
+  takeProfit?: number | null;
+  riskRewardRatio?: number | null;
+  volumeConfirmation?: boolean | null;
+  trendStrength?: number | null;
+  marketCondition?: string;
+  triggerType?: string;
+  positionSize?: number | null;
+  maxDollarRisk?: number | null;
+  riskPerShare?: number | null;
+  gateStatus?: 'APPROVED' | 'REJECTED';
+  gateReasons?: string[];
+  triggerPrice?: number | null;
+  triggeredAt?: string;
+  triggerReason?: string;
+  triggerWarning?: string;
+  triggerWarningAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -184,6 +203,8 @@ type TradeEntry = SavedWatchlistEntry & {
   takeProfit: number | null;
   fees: number | null;
   slippage: number | null;
+  stopLossHit?: boolean;
+  stopLossHitAt?: string;
   notes: string;
 };
 
@@ -203,13 +224,24 @@ type LedgerEntry = SavedWatchlistEntry & {
   exitDate?: string;
   exitPrice?: number | null;
   profitLoss?: number | null;
+  pnl?: number | null;
   profitLossPercent?: number | null;
   outcome?: 'Win' | 'Loss';
+  closedAt?: string;
+  lossReason?: string;
+  stopLossHit?: boolean;
+  timeInTrade?: string;
   notes?: string;
 };
 
 type ThesisStatus = 'ACTIVE' | 'TRIGGERED' | 'INVALIDATED' | 'EXPIRED';
-type WatchlistStatus = 'Watching' | 'Triggered' | 'Invalidated' | 'Expired';
+type WatchlistStatus = 'Watching' | 'Triggered Review' | 'Pending Confirmation' | 'Triggered' | 'Invalidated' | 'Expired';
+type ToastState = {
+  id: number;
+  type: 'success' | 'warning';
+  title: string;
+  body: string;
+};
 
 type ThesisOutcome = {
   status: ThesisStatus;
@@ -279,12 +311,17 @@ export default function Home() {
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
   const [updatingPaperTradeId, setUpdatingPaperTradeId] = useState<string | null>(null);
   const [markPriceDrafts, setMarkPriceDrafts] = useState<Record<string, string>>({});
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({});
+  const [pendingConfirmationEntry, setPendingConfirmationEntry] = useState<SavedWatchlistEntry | null>(null);
   const [lastLiveRefresh, setLastLiveRefresh] = useState<string | null>(null);
   const [livePolling, setLivePolling] = useState(false);
   const [resettingDemoData, setResettingDemoData] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
   const [watchlistDecisionMessage, setWatchlistDecisionMessage] = useState('');
   const [error, setError] = useState('');
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const knownPendingIds = useRef<Set<string>>(new Set());
+  const knownWarningKeys = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     void loadWorkflow();
@@ -303,6 +340,14 @@ export default function Home() {
     document.documentElement.classList.toggle('dark', darkMode);
     window.localStorage.setItem(THEME_STORAGE_KEY, darkMode ? 'dark' : 'light');
   }, [darkMode, themeLoaded]);
+
+  useEffect(() => {
+    if (!toast) return;
+
+    const timer = window.setTimeout(() => setToast(null), 7000);
+
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   useEffect(() => {
     if (!result?.quote || loading) return;
@@ -326,7 +371,9 @@ export default function Home() {
 
       if (watchlistResponse.ok) {
         const data = (await watchlistResponse.json()) as { entries?: SavedWatchlistEntry[] };
-        setWatchlistEntries(data.entries ?? []);
+        const entries = data.entries ?? [];
+        setWatchlistEntries(entries);
+        showWorkflowToasts(entries);
       }
 
       if (tradeResponse.ok) {
@@ -343,6 +390,51 @@ export default function Home() {
     } finally {
       setLoadingWatchlist(false);
     }
+  }
+
+  function showToast(nextToast: Omit<ToastState, 'id'>) {
+    setToast({
+      ...nextToast,
+      id: Date.now(),
+    });
+  }
+
+  function showWorkflowToasts(entries: SavedWatchlistEntry[]) {
+    const warningEntry = entries.find((entry) => {
+      if (!entry.triggerWarning || !entry.triggerWarningAt) return false;
+      return !knownWarningKeys.current.has(`${entry.id}:${entry.triggerWarningAt}`);
+    });
+    entries.forEach((entry) => {
+      if (entry.triggerWarning && entry.triggerWarningAt) {
+        knownWarningKeys.current.add(`${entry.id}:${entry.triggerWarningAt}`);
+      }
+    });
+
+    if (warningEntry) {
+      showToast({
+        type: 'warning',
+        title: `Setup trigger blocked: ${warningEntry.symbol}`,
+        body: warningEntry.triggerWarning ?? 'Invalid stop or target levels.',
+      });
+    }
+
+    const pendingEntries = entries.filter((entry) => isTriggeredReviewStatus(entry.status));
+    const newestPendingEntry = pendingEntries.find((entry) => !knownPendingIds.current.has(entry.id));
+
+    pendingEntries.forEach((entry) => knownPendingIds.current.add(entry.id));
+
+    if (!newestPendingEntry) return;
+
+    showToast({
+      type: 'success',
+      title: `Trade setup triggered: ${newestPendingEntry.symbol}`,
+      body: `Entry: ${formatCurrency(newestPendingEntry.triggerPrice ?? newestPendingEntry.startPrice ?? undefined)} | Stop: ${formatCurrency(parseFirstPriceLevel(newestPendingEntry.stopLossTrigger) ?? undefined)} | Target: ${formatCurrency(parseFirstPriceLevel(newestPendingEntry.takeProfitTrigger) ?? undefined)}`,
+    });
+    setQuantityDrafts((drafts) => ({
+      ...drafts,
+      [newestPendingEntry.id]: drafts[newestPendingEntry.id] ?? String(newestPendingEntry.positionSize ?? 20),
+    }));
+    setPendingConfirmationEntry(newestPendingEntry);
   }
 
   async function handleResetDemoData() {
@@ -379,9 +471,13 @@ export default function Home() {
       setLedgerEntries([]);
       setSavedEntry(null);
       setSelectedWatchlistEntry(null);
+      setPendingConfirmationEntry(null);
       setResult(null);
       setAnalysisModalOpen(false);
       setMarkPriceDrafts({});
+      setQuantityDrafts({});
+      knownPendingIds.current.clear();
+      knownWarningKeys.current.clear();
       setLastLiveRefresh(null);
 
       const deletedTotal = (data.deleted?.tradeLifecycleEntries ?? 0) + (data.deleted?.thesisRecords ?? 0);
@@ -506,6 +602,7 @@ export default function Home() {
 
     const analysisSignals = analysis.signalDetails ?? [];
     const plan = getTradePlan(analysisThesis, getFeaturedSignals(analysisSignals));
+    const riskFields = deriveTradeRiskFields(analysisThesis, analysisSignals);
     const analysisSymbol =
       analysisThesis.symbol ??
       analysis.quote?.symbol ??
@@ -537,6 +634,10 @@ export default function Home() {
           riskExplanation: analysisThesis.riskExplanation,
           news: analysisNews,
           traceId: analysis.traceId ?? analysisThesis.traceId,
+          volumeConfirmation: riskFields.volumeConfirmation,
+          trendStrength: riskFields.trendStrength,
+          marketCondition: riskFields.marketCondition,
+          triggerType: riskFields.triggerType,
         }),
       });
 
@@ -604,7 +705,14 @@ export default function Home() {
     }
   }
 
-  async function handleOpenPaperTrade(entry: SavedWatchlistEntry) {
+  async function handleConfirmOpenTrade(entry: SavedWatchlistEntry) {
+    const quantity = Number(quantityDrafts[entry.id] ?? entry.positionSize ?? 20);
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setError('Enter a valid quantity before opening this trade.');
+      return;
+    }
+
     setUpdatingWatchlistStatusId(entry.id);
     setError('');
 
@@ -613,9 +721,9 @@ export default function Home() {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({
-          entryPrice: entry.startPrice,
-          quantity: 1,
-          notes: 'Opened from saved setup.',
+          entryPrice: entry.triggerPrice ?? entry.startPrice,
+          quantity,
+          notes: entry.triggerReason ? `Opened after trigger confirmation: ${entry.triggerReason}` : 'Opened from saved setup.',
         }),
       });
 
@@ -629,8 +737,45 @@ export default function Home() {
       setTradeEntries((entries) => [data.entry!, ...entries.filter((currentEntry) => currentEntry.id !== entry.id)]);
       setSavedEntry((currentEntry) => currentEntry?.id === entry.id ? null : currentEntry);
       setSelectedWatchlistEntry((currentEntry) => currentEntry?.id === entry.id ? null : currentEntry);
+      setPendingConfirmationEntry((currentEntry) => currentEntry?.id === entry.id ? null : currentEntry);
+      setQuantityDrafts((drafts) => {
+        const nextDrafts = { ...drafts };
+        delete nextDrafts[entry.id];
+        return nextDrafts;
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not open this paper trade.';
+      setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
+    } finally {
+      setUpdatingWatchlistStatusId(null);
+    }
+  }
+
+  async function handleSkipPendingConfirmation(entry: SavedWatchlistEntry) {
+    setUpdatingWatchlistStatusId(entry.id);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/watchlist/${entry.id}/skip-confirmation`, {
+        method: 'POST',
+        headers: apiHeaders(),
+      });
+
+      const data = (await response.json()) as { entry?: SavedWatchlistEntry; message?: string; error?: string };
+
+      if (!response.ok || !data.entry) {
+        throw new Error(data.message ?? data.error ?? 'Could not skip this setup.');
+      }
+
+      setWatchlistEntries((entries) => entries.map((currentEntry) => currentEntry.id === entry.id ? data.entry! : currentEntry));
+      setPendingConfirmationEntry((currentEntry) => currentEntry?.id === entry.id ? null : currentEntry);
+      setQuantityDrafts((drafts) => {
+        const nextDrafts = { ...drafts };
+        delete nextDrafts[entry.id];
+        return nextDrafts;
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not skip this setup.';
       setError(message === 'Failed to fetch' ? 'Could not reach the watchlist API. Make sure the backend is running on port 3001.' : message);
     } finally {
       setUpdatingWatchlistStatusId(null);
@@ -883,9 +1028,12 @@ export default function Home() {
             entries={watchlistEntries}
             loading={loadingWatchlist}
             updatingStatusId={updatingWatchlistStatusId}
+            quantityDrafts={quantityDrafts}
             onRefresh={() => void loadWorkflow()}
             onUpdateStatus={handleUpdateWatchlistStatus}
-            onOpenPaperTrade={handleOpenPaperTrade}
+            onConfirmOpenTrade={handleConfirmOpenTrade}
+            onSkipConfirmation={handleSkipPendingConfirmation}
+            onQuantityChange={(entryId, value) => setQuantityDrafts((drafts) => ({ ...drafts, [entryId]: value }))}
             onViewThesis={setSelectedWatchlistEntry}
           />
 
@@ -930,6 +1078,25 @@ export default function Home() {
         entry={selectedWatchlistEntry}
         onClose={() => setSelectedWatchlistEntry(null)}
       />
+
+      <PendingConfirmationModal
+        entry={pendingConfirmationEntry}
+        quantity={pendingConfirmationEntry ? quantityDrafts[pendingConfirmationEntry.id] ?? String(pendingConfirmationEntry.positionSize ?? 20) : '20'}
+        updating={pendingConfirmationEntry ? updatingWatchlistStatusId === pendingConfirmationEntry.id : false}
+        onQuantityChange={(value) => {
+          if (!pendingConfirmationEntry) return;
+          setQuantityDrafts((drafts) => ({ ...drafts, [pendingConfirmationEntry.id]: value }));
+        }}
+        onConfirm={() => {
+          if (pendingConfirmationEntry) void handleConfirmOpenTrade(pendingConfirmationEntry);
+        }}
+        onSkip={() => {
+          if (pendingConfirmationEntry) void handleSkipPendingConfirmation(pendingConfirmationEntry);
+        }}
+        onClose={() => setPendingConfirmationEntry(null)}
+      />
+
+      {toast && <Toast toast={toast} onClose={() => setToast(null)} />}
     </main>
   );
 }
@@ -1506,19 +1673,28 @@ function WatchlistCard({
   entries,
   loading,
   updatingStatusId,
+  quantityDrafts,
   onRefresh,
   onUpdateStatus,
-  onOpenPaperTrade,
+  onConfirmOpenTrade,
+  onSkipConfirmation,
+  onQuantityChange,
   onViewThesis,
 }: {
   entries: SavedWatchlistEntry[];
   loading: boolean;
   updatingStatusId: string | null;
+  quantityDrafts: Record<string, string>;
   onRefresh: () => void;
   onUpdateStatus: (entryId: string, status: WatchlistStatus) => void;
-  onOpenPaperTrade: (entry: SavedWatchlistEntry) => void;
+  onConfirmOpenTrade: (entry: SavedWatchlistEntry) => void;
+  onSkipConfirmation: (entry: SavedWatchlistEntry) => void;
+  onQuantityChange: (entryId: string, value: string) => void;
   onViewThesis: (entry: SavedWatchlistEntry) => void;
 }) {
+  const pendingEntries = entries.filter((entry) => isTriggeredReviewStatus(entry.status));
+  const watchingEntries = entries.filter((entry) => !isTriggeredReviewStatus(entry.status));
+
   return (
     <section className={CARD_CLASS}>
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -1549,14 +1725,95 @@ function WatchlistCard({
       </div>
 
       <div className="mt-6 space-y-4">
+        {pendingEntries.length > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-950 shadow-sm">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-bold uppercase">Triggered Review</p>
+                <h4 className="mt-1 text-xl font-bold">Gatekeeper approval and quantity</h4>
+              </div>
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-bold shadow-sm">
+                {pendingEntries.length} pending
+              </span>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {pendingEntries.map((entry) => (
+                <div key={entry.id} className="rounded-lg border border-amber-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-zinc-950 px-3 py-1 text-sm font-bold text-white">{entry.symbol}</span>
+                        <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-800">
+                          Triggered Review
+                        </span>
+                        <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${entry.gateStatus === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                          {entry.gateStatus === 'APPROVED' ? 'Approved' : 'Rejected'}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-sm font-semibold leading-6">
+                        {entry.triggerReason || 'Trade setup triggered.'}
+                      </p>
+                      <p className="mt-1 text-sm font-bold">
+                        Entry: {formatCurrency(entry.triggerPrice ?? entry.startPrice ?? undefined)} | Stop: {formatCurrency(parseFirstPriceLevel(entry.stopLossTrigger) ?? undefined)} | Target: {formatCurrency(parseFirstPriceLevel(entry.takeProfitTrigger) ?? undefined)}
+                      </p>
+                      <div className="mt-3 grid gap-2 text-sm font-semibold sm:grid-cols-4">
+                        <span>Confidence: {entry.confidenceScore === null ? 'N/A' : `${Math.round(entry.confidenceScore * 100)}%`}</span>
+                        <span>R/R: {formatNumber(entry.riskRewardRatio)}</span>
+                        <span>Size: {entry.positionSize ?? 0}</span>
+                        <span>Risk/share: {formatCurrency(entry.riskPerShare ?? undefined)}</span>
+                      </div>
+                      {entry.gateReasons && entry.gateReasons.length > 0 && (
+                        <ul className="mt-3 grid gap-1 text-sm font-semibold text-red-800">
+                          {entry.gateReasons.map((reason) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div className="grid min-w-full gap-2 sm:min-w-[360px] sm:grid-cols-[1fr_auto_auto]">
+                      <label className="grid gap-1 text-xs font-bold uppercase text-amber-900">
+                        Qty
+                        <input
+                          value={quantityDrafts[entry.id] ?? String(entry.positionSize ?? 20)}
+                          onChange={(event) => onQuantityChange(entry.id, event.target.value)}
+                          inputMode="decimal"
+                          className="min-h-10 rounded-lg border border-amber-300 bg-white px-3 text-sm font-bold text-zinc-950 outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={updatingStatusId === entry.id || entry.gateStatus !== 'APPROVED'}
+                        onClick={() => onConfirmOpenTrade(entry)}
+                        className="inline-flex min-h-10 items-center justify-center rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                      >
+                        {updatingStatusId === entry.id ? 'Opening...' : 'Confirm Open Trade'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={updatingStatusId === entry.id}
+                        onClick={() => onSkipConfirmation(entry)}
+                        className="inline-flex min-h-10 items-center justify-center rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-amber-900 transition hover:border-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Cancel/Skip
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {loading && entries.length === 0 ? (
           <div className="grid gap-3 md:grid-cols-2">
             {[0, 1].map((item) => (
               <div key={item} className="h-32 animate-pulse rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" />
             ))}
           </div>
-        ) : entries.length > 0 ? (
-          entries.map((entry) => (
+        ) : watchingEntries.length > 0 ? (
+          watchingEntries.map((entry) => (
             <div key={entry.id} className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="min-w-0">
@@ -1585,6 +1842,11 @@ function WatchlistCard({
                       <dd className="inline text-zinc-950 dark:text-zinc-50">{formatShortDate(entry.createdAt)}</dd>
                     </div>
                   </dl>
+                  {entry.triggerWarning && (
+                    <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+                      {entry.triggerWarning}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1595,15 +1857,6 @@ function WatchlistCard({
                   className="inline-flex min-h-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 transition hover:border-emerald-500 hover:text-emerald-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
                 >
                   View Thesis
-                </button>
-
-                <button
-                  type="button"
-                  disabled={updatingStatusId === entry.id}
-                  onClick={() => onOpenPaperTrade(entry)}
-                  className="inline-flex min-h-9 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 transition hover:border-emerald-500 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:border-emerald-500"
-                >
-                  {updatingStatusId === entry.id ? 'Opening...' : 'Open Paper'}
                 </button>
 
                 {(['Invalidated', 'Expired'] as WatchlistStatus[]).map((status) => (
@@ -1620,9 +1873,9 @@ function WatchlistCard({
               </div>
             </div>
           ))
-        ) : (
+        ) : pendingEntries.length === 0 ? (
           <EmptyState title="No watch list setups yet" body="Run an analysis and add the best setups here before they become trades." />
-        )}
+        ) : null}
       </div>
     </section>
   );
@@ -1783,6 +2036,12 @@ function TradeListCard({
                 <MiniStat label="Qty" value={entry.quantity === null ? 'N/A' : String(entry.quantity)} />
               </div>
 
+              {entry.stopLossHit && (
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-900">
+                  Stop loss hit. Review this trade for closing.
+                </div>
+              )}
+
               <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
                 <input
                   value={markPriceDrafts[entry.id] ?? ''}
@@ -1804,8 +2063,8 @@ function TradeListCard({
               <div className="mt-4 grid gap-3 md:grid-cols-4">
                 <MiniStat label="Stop" value={formatCurrency(entry.stopLoss ?? undefined)} />
                 <MiniStat label="Target" value={formatCurrency(entry.takeProfit ?? undefined)} />
-                <MiniStat label="Fees" value={formatCurrency(entry.fees ?? undefined)} />
-                <MiniStat label="Slippage" value={formatCurrency(entry.slippage ?? undefined)} />
+                <MiniStat label="Risk/Reward" value={formatNumber(entry.riskRewardRatio)} />
+                <MiniStat label="Max Risk" value={formatCurrency(entry.maxDollarRisk ?? undefined)} />
               </div>
 
               <div className="mt-4 grid gap-2">
@@ -1823,7 +2082,128 @@ function TradeListCard({
   );
 }
 
+function PendingConfirmationModal({
+  entry,
+  quantity,
+  updating,
+  onQuantityChange,
+  onConfirm,
+  onSkip,
+  onClose,
+}: {
+  entry: SavedWatchlistEntry | null;
+  quantity: string;
+  updating: boolean;
+  onQuantityChange: (value: string) => void;
+  onConfirm: () => void;
+  onSkip: () => void;
+  onClose: () => void;
+}) {
+  if (!entry) return null;
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-zinc-950/70 px-4 py-8 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-lg border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold uppercase text-amber-600 dark:text-amber-300">Triggered Review</p>
+            <h3 className="mt-1 text-2xl font-bold">Trade setup triggered: {entry.symbol}</h3>
+            <span className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-bold ${entry.gateStatus === 'APPROVED' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+              Gatekeeper: {entry.gateStatus === 'APPROVED' ? 'Approved' : 'Rejected'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-300 text-zinc-600 transition hover:border-zinc-500 hover:text-zinc-950 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-white"
+            aria-label="Close confirmation"
+          >
+            x
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <MiniStat label="Entry" value={formatCurrency(entry.triggerPrice ?? entry.startPrice ?? undefined)} />
+          <MiniStat label="Stop" value={formatCurrency(parseFirstPriceLevel(entry.stopLossTrigger) ?? undefined)} />
+          <MiniStat label="Target" value={formatCurrency(parseFirstPriceLevel(entry.takeProfitTrigger) ?? undefined)} />
+        </div>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <MiniStat label="Risk/Reward" value={formatNumber(entry.riskRewardRatio)} />
+          <MiniStat label="Position Size" value={String(entry.positionSize ?? 0)} />
+          <MiniStat label="Max Risk" value={formatCurrency(entry.maxDollarRisk ?? undefined)} />
+        </div>
+
+        {entry.gateReasons && entry.gateReasons.length > 0 && (
+          <ul className="mt-4 grid gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-900">
+            {entry.gateReasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        )}
+
+        <label className="mt-5 grid gap-2 text-sm font-bold text-zinc-700 dark:text-zinc-200">
+          How many shares/contracts/coins do you want to buy?
+          <input
+            value={quantity}
+            onChange={(event) => onQuantityChange(event.target.value)}
+            inputMode="decimal"
+            className="min-h-12 rounded-lg border border-zinc-300 bg-white px-4 text-lg font-bold outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 dark:focus:border-emerald-500 dark:focus:ring-emerald-500/20"
+          />
+        </label>
+
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            disabled={updating || entry.gateStatus !== 'APPROVED'}
+            onClick={onConfirm}
+            className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          >
+            {updating ? 'Opening...' : 'Confirm Open Trade'}
+          </button>
+          <button
+            type="button"
+            disabled={updating}
+            onClick={onSkip}
+            className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-bold text-zinc-700 transition hover:border-amber-500 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
+          >
+            Cancel/Skip
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Toast({ toast, onClose }: { toast: ToastState; onClose: () => void }) {
+  const tone =
+    toast.type === 'warning'
+      ? 'border-amber-300 bg-amber-50 text-amber-950'
+      : 'border-emerald-300 bg-emerald-50 text-emerald-950';
+
+  return (
+    <div className={`fixed right-4 top-4 z-50 w-[min(420px,calc(100vw-2rem))] rounded-lg border p-4 shadow-xl ${tone}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-bold">{toast.title}</p>
+          <p className="mt-1 text-sm font-semibold leading-6">{toast.body}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-current/20 text-sm font-bold"
+          aria-label="Dismiss notification"
+        >
+          x
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TrustLedgerCard({ entries }: { entries: LedgerEntry[] }) {
+  const insights = getTrustLedgerInsights(entries);
+
   return (
     <section className={CARD_CLASS}>
       <div className="flex items-center gap-2">
@@ -1839,6 +2219,22 @@ function TrustLedgerCard({ entries }: { entries: LedgerEntry[] }) {
             </span>
           </div>
         </div>
+      </div>
+
+      <div className="mt-6 grid gap-3 md:grid-cols-4">
+        <MiniStat label="Wins" value={String(insights.totalWins)} />
+        <MiniStat label="Losses" value={String(insights.totalLosses)} />
+        <MiniStat label="Win Rate" value={`${insights.winRate.toFixed(1)}%`} />
+        <MiniStat label="Total P/L" value={formatCurrency(insights.totalProfitLoss)} />
+        <MiniStat label="Avg Win" value={formatCurrency(insights.averageWin)} />
+        <MiniStat label="Avg Loss" value={formatCurrency(insights.averageLoss)} />
+        <MiniStat label="Losses No Volume" value={String(insights.lossesMissingVolume)} />
+        <MiniStat label="Losses R/R < 2" value={String(insights.lossesLowRiskReward)} />
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <DisclosureBlock label="Losses by Trigger Type" value={formatCountMap(insights.lossCountByTriggerType)} />
+        <DisclosureBlock label="Losses by Confidence Bucket" value={formatCountMap(insights.lossCountByConfidenceBucket)} />
       </div>
 
       <div className="mt-6 space-y-3">
@@ -1868,8 +2264,17 @@ function TrustLedgerCard({ entries }: { entries: LedgerEntry[] }) {
                 <MiniStat label="P/L" value={formatCurrency(entry.profitLoss ?? undefined)} />
               </div>
 
+              <div className="mt-4 grid gap-3 md:grid-cols-5">
+                <MiniStat label="R/R" value={formatNumber(entry.riskRewardRatio)} />
+                <MiniStat label="Size" value={entry.positionSize === null || entry.positionSize === undefined ? 'N/A' : String(entry.positionSize)} />
+                <MiniStat label="Stop Hit" value={entry.stopLossHit ? 'Yes' : 'No'} />
+                <MiniStat label="Time" value={entry.timeInTrade ?? 'N/A'} />
+                <MiniStat label="Closed" value={formatDate(entry.closedAt ?? entry.exitDate)} />
+              </div>
+
               <div className="mt-4 grid gap-2">
                 <DisclosureBlock label="Original Thesis" value={entry.thesis || 'No thesis saved.'} />
+                {entry.lossReason && <DisclosureBlock label="Loss Reason" value={entry.lossReason} />}
                 <DisclosureBlock label="Notes" value={entry.notes || entry.invalidationReason || 'N/A'} />
               </div>
             </div>
@@ -1880,6 +2285,57 @@ function TrustLedgerCard({ entries }: { entries: LedgerEntry[] }) {
       </div>
     </section>
   );
+}
+
+function getTrustLedgerInsights(entries: LedgerEntry[]) {
+  const closedTrades = entries.filter((entry) => entry.recordType === 'Closed Trade');
+  const wins = closedTrades.filter((entry) => entry.outcome === 'Win');
+  const losses = closedTrades.filter((entry) => entry.outcome === 'Loss');
+  const winAmounts = wins.map((entry) => entry.profitLoss ?? entry.pnl ?? 0);
+  const lossAmounts = losses.map((entry) => entry.profitLoss ?? entry.pnl ?? 0);
+  const totalProfitLoss = closedTrades.reduce((sum, entry) => sum + (entry.profitLoss ?? entry.pnl ?? 0), 0);
+
+  return {
+    totalWins: wins.length,
+    totalLosses: losses.length,
+    winRate: closedTrades.length > 0 ? (wins.length / closedTrades.length) * 100 : 0,
+    averageWin: averageNumbers(winAmounts),
+    averageLoss: averageNumbers(lossAmounts),
+    totalProfitLoss,
+    lossCountByTriggerType: countBy(losses, (entry) => entry.triggerType ?? 'Unknown'),
+    lossesMissingVolume: losses.filter((entry) => entry.volumeConfirmation !== true).length,
+    lossesLowRiskReward: losses.filter((entry) => typeof entry.riskRewardRatio === 'number' && entry.riskRewardRatio < 2).length,
+    lossCountByConfidenceBucket: countBy(losses, (entry) => confidenceBucket(entry.confidenceScore)),
+  };
+}
+
+function averageNumbers(values: number[]) {
+  if (values.length === 0) return 0;
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function countBy<T>(entries: T[], getKey: (entry: T) => string) {
+  return entries.reduce<Record<string, number>>((counts, entry) => {
+    const key = getKey(entry);
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function confidenceBucket(confidenceScore?: number | null) {
+  if (typeof confidenceScore !== 'number') return 'Unknown';
+  if (confidenceScore < 0.6) return 'below 60%';
+  if (confidenceScore < 0.7) return '60-70%';
+  if (confidenceScore < 0.75) return '70-75%';
+  return '75%+';
+}
+
+function formatCountMap(counts: Record<string, number>) {
+  const entries = Object.entries(counts);
+  if (entries.length === 0) return 'No losses recorded.';
+
+  return entries.map(([key, value]) => `${key}: ${value}`).join('\n');
 }
 
 function EmptyState({ title, body }: { title: string; body: string }) {
@@ -2198,6 +2654,11 @@ function formatPercent(value?: number | null) {
   return `${(value * 100).toFixed(2)}%`;
 }
 
+function formatNumber(value?: number | null) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'N/A';
+  return value.toFixed(2);
+}
+
 function formatCandleTime(timestamp: number) {
   const date = new Date(timestamp * 1000);
 
@@ -2237,17 +2698,46 @@ function formatShortDate(value?: string) {
   }).format(new Date(value));
 }
 
+function parseFirstPriceLevel(value?: string): number | null {
+  if (!value) return null;
+
+  const matches = Array.from(value.matchAll(/\$?\b\d+(?:,\d{3})*(?:\.\d+)?\b/g));
+
+  for (const match of matches) {
+    const raw = match[0];
+    const nextCharacter = value[Number(match.index) + raw.length]?.toLowerCase();
+
+    if (nextCharacter === '%' || nextCharacter === 'r' || nextCharacter === 'x') {
+      continue;
+    }
+
+    const parsed = Number(raw.replace(/[$,]/g, ''));
+
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
 function watchlistStatusClass(status?: WatchlistStatus) {
+  if (status === 'Triggered Review') return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
+  if (status === 'Pending Confirmation') return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
   if (status === 'Triggered') return 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300';
   if (status === 'Invalidated') return 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300';
   if (status === 'Expired') return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
   return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
 }
 
+function isTriggeredReviewStatus(status?: WatchlistStatus) {
+  return status === 'Triggered Review' || status === 'Pending Confirmation';
+}
+
 function directionClass(direction?: string) {
   const normalized = direction?.toUpperCase() ?? '';
-  if (normalized.includes('BULL')) return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
-  if (normalized.includes('BEAR')) return 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300';
+  if (normalized.includes('BULL') || normalized.includes('LONG')) return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
+  if (normalized.includes('BEAR') || normalized.includes('SHORT')) return 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300';
   return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300';
 }
 
@@ -2262,6 +2752,46 @@ function formatSignalValue(signal: SignalDetail) {
   }
 
   return signal.value ?? 'N/A';
+}
+
+function deriveTradeRiskFields(thesis: TradingThesis, signals: SignalDetail[]) {
+  const volumeSignal = signals.find((signal) => signal.type === 'VOLUME_SPIKE');
+  const volumeRatio = typeof volumeSignal?.value === 'number' ? volumeSignal.value : null;
+  const trendSignals = signals
+    .filter((signal) => ['INTRADAY_MOMENTUM', 'EMA_ALIGNMENT', 'VWAP_POSITION'].includes(signal.type ?? ''))
+    .map((signal) => typeof signal.value === 'number' ? Math.min(Math.abs(signal.value) / 2, 1) : 0);
+  const trendStrength = trendSignals.length > 0
+    ? Number((trendSignals.reduce((sum, value) => sum + value, 0) / trendSignals.length).toFixed(2))
+    : null;
+
+  return {
+    volumeConfirmation: volumeRatio !== null ? volumeRatio >= 1.2 : false,
+    trendStrength,
+    marketCondition: getMarketCondition(signals),
+    triggerType: getTriggerType(thesis),
+  };
+}
+
+function getMarketCondition(signals: SignalDetail[]) {
+  const momentum = signals.find((signal) => signal.type === 'INTRADAY_MOMENTUM');
+  const value = typeof momentum?.value === 'number' ? momentum.value : 0;
+
+  if (value > 0.75) return 'Bullish momentum';
+  if (value < -0.75) return 'Bearish momentum';
+
+  return 'Range-bound';
+}
+
+function getTriggerType(thesis: TradingThesis) {
+  const setupType = thesis.setup?.setupType;
+  if (setupType && setupType !== 'NO_TRADE') return setupType;
+
+  const text = `${thesis.tradePlan?.entryTrigger ?? ''} ${thesis.setup?.entryZone ?? ''}`.toLowerCase();
+  if (text.includes('breakout') || text.includes('above') || text.includes('below')) return 'BREAKOUT';
+  if (text.includes('pullback')) return 'PULLBACK';
+  if (text.includes('reversal')) return 'REVERSAL';
+
+  return 'CONFIRMATION';
 }
 
 function getTradePlan(thesis: TradingThesis, signals: SignalDetail[]): Required<TradePlan> {
