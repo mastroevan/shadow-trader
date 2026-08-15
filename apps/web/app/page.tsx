@@ -347,6 +347,8 @@ export default function Home() {
 
   useEffect(() => {
     void loadWorkflow();
+    // Mount-once load; loadWorkflow is also called explicitly by refresh actions elsewhere.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -379,6 +381,9 @@ export default function Home() {
     }, LIVE_POLL_INTERVAL_MS);
 
     return () => window.clearInterval(interval);
+    // Deliberately scoped to instrument identity, not the full result/function identity,
+    // so a live refresh's own response doesn't reset this interval.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.meta?.symbol, result?.meta?.instrument?.assetClass, result?.meta?.instrument?.timeframe, loading]);
 
   async function loadWorkflow() {

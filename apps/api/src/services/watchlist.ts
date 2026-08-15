@@ -213,6 +213,7 @@ export async function moveWatchlistEntry(
   if (!row || row.kind !== KIND_WATCHLIST) return null;
 
   const previousEntry = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
+  if (status === "Triggered" && previousEntry.gateStatus !== "APPROVED") return null;
   const movedEntry = status === "Triggered"
     ? buildTradeEntry(previousEntry, {})
     : buildLedgerEntry(previousEntry, status);
@@ -642,7 +643,7 @@ function normalizeLedgerEntry(entry: LedgerEntry): LedgerEntry {
   };
 }
 
-function dedupeActiveWatchlist(entries: WatchlistEntry[]) {
+export function dedupeActiveWatchlist(entries: WatchlistEntry[]) {
   const seen = new Set<string>();
   const deduped: WatchlistEntry[] = [];
 
@@ -688,7 +689,7 @@ function normalizeNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function withPaperTradeProfit<T extends TradeEntry>(trade: T): T {
+export function withPaperTradeProfit<T extends TradeEntry>(trade: T): T {
   const profit = calculatePaperTradeProfit(trade, trade.currentPrice);
 
   return {
@@ -698,7 +699,7 @@ function withPaperTradeProfit<T extends TradeEntry>(trade: T): T {
   };
 }
 
-function calculatePaperTradeProfit(
+export function calculatePaperTradeProfit(
   trade: {
     direction?: string;
     entryPrice?: number | null;
@@ -735,7 +736,7 @@ function calculatePaperTradeProfit(
   };
 }
 
-function isStopLossHit(trade: TradeEntry, price?: number | null) {
+export function isStopLossHit(trade: TradeEntry, price?: number | null) {
   if (typeof price !== "number" || typeof trade.stopLoss !== "number") return false;
 
   const normalizedDirection = trade.direction?.toUpperCase() ?? "";
@@ -744,7 +745,7 @@ function isStopLossHit(trade: TradeEntry, price?: number | null) {
   return isShort ? price >= trade.stopLoss : price <= trade.stopLoss;
 }
 
-function buildLossReason(trade: TradeEntry) {
+export function buildLossReason(trade: TradeEntry) {
   if (typeof trade.riskRewardRatio === "number" && trade.riskRewardRatio < 2) {
     return "Poor risk/reward setup";
   }
@@ -764,7 +765,7 @@ function buildLossReason(trade: TradeEntry) {
   return "Trade moved against thesis";
 }
 
-function calculateTimeInTrade(entryDate?: string | null, closedAt?: string) {
+export function calculateTimeInTrade(entryDate?: string | null, closedAt?: string) {
   if (!entryDate || !closedAt) return undefined;
 
   const start = new Date(entryDate).getTime();
@@ -779,7 +780,7 @@ function calculateTimeInTrade(entryDate?: string | null, closedAt?: string) {
   return `${hours}h ${minutes}m`;
 }
 
-function parseFirstPriceLevel(value?: string): number | null {
+export function parseFirstPriceLevel(value?: string): number | null {
   if (!value) return null;
 
   const matches = value.matchAll(/\$?\b\d+(?:,\d{3})*(?:\.\d+)?\b/g);

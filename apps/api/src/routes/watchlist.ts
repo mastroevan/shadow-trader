@@ -120,7 +120,10 @@ router.patch("/watchlist/:id/status", async (req, res) => {
   if (!move) {
     return res.status(404).json({
       error: "WATCHLIST_ENTRY_NOT_FOUND",
-      message: "No watchlist entry was found for that id.",
+      message:
+        nextStatus === "Triggered"
+          ? "No approved watchlist entry was found for that id. Entries must pass the risk gate before they can be triggered."
+          : "No watchlist entry was found for that id.",
     });
   }
 

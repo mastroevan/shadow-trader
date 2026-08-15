@@ -8,6 +8,9 @@ export default function LoginPage({
   };
 }) {
   const callbackUrl = searchParams?.callbackUrl ?? "/";
+  const googleEnabled = Boolean(
+    process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET
+  );
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-zinc-950 px-6 text-zinc-50">
@@ -17,7 +20,7 @@ export default function LoginPage({
         </p>
         <h1 className="mt-3 text-2xl font-bold">Sign in</h1>
         <p className="mt-3 text-sm leading-6 text-zinc-300">
-          Continue with GitHub to access your trading research workspace.
+          Sign in to access your trading research workspace.
         </p>
 
         <form
@@ -34,6 +37,23 @@ export default function LoginPage({
             Continue with GitHub
           </button>
         </form>
+
+        {googleEnabled && (
+          <form
+            className="mt-3"
+            action={async () => {
+              "use server";
+              await signIn("google", { redirectTo: callbackUrl });
+            }}
+          >
+            <button
+              type="submit"
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-4 text-sm font-bold text-zinc-50 transition hover:border-zinc-500"
+            >
+              Continue with Google
+            </button>
+          </form>
+        )}
       </section>
     </main>
   );
