@@ -162,7 +162,7 @@ export async function runTriggerAutomation(): Promise<AutomationRunResult> {
   return result;
 }
 
-function evaluateEntryTrigger(entry: WatchlistEntry, price: number) {
+export function evaluateEntryTrigger(entry: WatchlistEntry, price: number) {
   const direction = getDirection(entry.direction);
   const explicitLevel = selectEntryLevel(entry, direction);
 
@@ -197,7 +197,7 @@ function evaluateEntryTrigger(entry: WatchlistEntry, price: number) {
   };
 }
 
-function evaluateExitTrigger(trade: TradeEntry, price: number) {
+export function evaluateExitTrigger(trade: TradeEntry, price: number) {
   const direction = getDirection(trade.direction);
 
   if (typeof trade.takeProfit === "number") {
@@ -294,7 +294,7 @@ async function getLatestPrice(symbol: string): Promise<number> {
   return quote.price;
 }
 
-function selectEntryLevel(entry: WatchlistEntry, direction: "long" | "short") {
+export function selectEntryLevel(entry: WatchlistEntry, direction: "long" | "short") {
   const levels = [
     ...parsePriceLevels(entry.entryTrigger),
     ...parsePriceLevels(entry.entryZone),
@@ -320,7 +320,7 @@ function selectEntryLevel(entry: WatchlistEntry, direction: "long" | "short") {
   );
 }
 
-function parsePriceLevels(value?: string): number[] {
+export function parsePriceLevels(value?: string): number[] {
   if (!value) return [];
 
   const matches = value.matchAll(/\$?\b\d+(?:,\d{3})*(?:\.\d+)?\b/g);

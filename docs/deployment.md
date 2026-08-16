@@ -50,12 +50,23 @@ NEXT_PUBLIC_FRONTEND_URL=https://shadow-trader-web.onrender.com
 INTERNAL_API_KEY
 ```
 
+Optional, API service (all have defaults — see `.env.example` for the full list): trade risk gate tuning (`ACCOUNT_BALANCE`, `RISK_PER_TRADE_PERCENT`, `MIN_RISK_REWARD_RATIO`, `MIN_CONFIDENCE_SCORE`, `MIN_VOLUME_RATIO`, `MIN_TREND_STRENGTH`, `COOLDOWN_HOURS_AFTER_LOSS`), the startup scanner (`STARTUP_SCAN_*`), and automation notifications (`DISCORD_WEBHOOK_URL`, `TWILIO_*`).
+
 Web service:
 
 ```text
 API_INTERNAL_BASE_URL=https://shadow-trader-api.onrender.com
 INTERNAL_API_KEY=<same value as API service>
+AUTH_SECRET=<random secret, e.g. `openssl rand -base64 32`>
+AUTH_URL=https://shadow-trader-web.onrender.com
+AUTH_GITHUB_ID=<GitHub OAuth app client ID>
+AUTH_GITHUB_SECRET=<GitHub OAuth app client secret>
+AUTH_ALLOWED_EMAILS=<optional comma-separated allowlist; empty allows any GitHub/Google account>
+AUTH_GOOGLE_ID=<optional Google OAuth client ID>
+AUTH_GOOGLE_SECRET=<optional Google OAuth client secret>
 ```
+
+`AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` are optional — the "Continue with Google" button only appears on `/login` when both are set.
 
 ## Database Migration
 
