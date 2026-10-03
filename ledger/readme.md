@@ -1,0 +1,68 @@
+# Shadow Trader Ledger (SAP CAP)
+
+An append-only record of trade theses, risk assessments, and human approvals.
+No order executes until `isApproved(thesis)` returns `true`.
+
+| What | Where |
+| --- | --- |
+| Three ledger tables | [db/schema.cds](db/schema.cds) |
+| One CAP service | [srv/ledger-service.cds](srv/ledger-service.cds), [srv/ledger-service.js](srv/ledger-service.js) |
+| Three roles (LedgerWriter, Approver, Auditor) | [xs-security.json](xs-security.json), `@restrict` in the service |
+| Approval gate (ledger side) | `decide` / `isApproved` in [srv/ledger-service.js](srv/ledger-service.js) |
+| Approval gate (Shadow Trader side) | [apps/api/src/services/ledgerGate.ts](../apps/api/src/services/ledgerGate.ts), called from `openPaperTradeEntry` / `moveWatchlistEntry` |
+| BTP Cloud Foundry + HANA Cloud + XSUAA | [mta.yaml](mta.yaml) |
+| Tests | [test/approval-gate.test.js](test/approval-gate.test.js), [ledgerGate.test.ts](../apps/api/src/services/ledgerGate.test.ts) |
+| CI | `ledger` job in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) |
+
+## Approval rules
+
+- Only an `Approver` can call `decide`; nobody can write `Approvals` directly.
+- An approver can't approve a thesis they recorded themselves (four-eyes rule).
+- Each thesis gets exactly one decision (enforced by a unique constraint).
+- A thesis needs at least one risk assessment before it can be approved.
+- Nothing is updated or deleted; `createdBy`/`createdAt` are the audit trail.
+
+## How Shadow Trader uses it
+
+With `LEDGER_URL` set on the API, opening a paper trade for a watchlist entry
+that passed the automated risk gate goes like this:
+
+1. First attempt: the API records a `TradeThesis` and `RiskAssessment` as
+   LedgerWriter, saves the thesis ID on the entry, and responds
+   `409 AWAITING_LEDGER_APPROVAL` with `ledgerThesisId`.
+2. A human with the Approver role calls `POST /ledger/decide`.
+3. Next attempt: the API calls `isApproved` and opens the trade only if it is `true`.
+
+If the ledger is unreachable or errors, the API responds `503 LEDGER_UNAVAILABLE`
+and does not open the trade. If `LEDGER_URL` is unset, the gate is skipped.
+
+## Run locally
+
+```bash
+npm install
+npm run watch   # http://localhost:4004, SQLite in memory, mocked users
+npm test        # Jest
+```
+
+Mocked users (empty password): `writer`, `approver`, `auditor`, and `solo` (writer + approver, used to test the four-eyes rule).
+
+Approve a thesis locally:
+
+```bash
+curl -u approver: -H 'Content-Type: application/json' \
+  -d '{"thesis":"<ledgerThesisId>","decision":"approved","reason":"..."}' \
+  http://localhost:4004/ledger/decide
+```
+
+## Deploy to BTP Cloud Foundry
+
+In production (`--profile production`) the database is HANA Cloud and auth is XSUAA.
+
+```bash
+mbt build && cf deploy mta_archives/shadow-trader-ledger_1.0.0.mtar
+```
+
+This creates the HDI container, the XSUAA instance and three role collections
+(assign them to users in the BTP cockpit). For the Shadow Trader API, create a
+service key on the XSUAA instance (`cf create-service-key shadow-trader-ledger-auth api`);
+its client gets the `LedgerWriter` scope through `authorities` in xs-security.json.

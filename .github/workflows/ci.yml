@@ -65,3 +65,20 @@ jobs:
         env:
           OPENAI_API_KEY: ci-dummy-key
           FINNHUB_API_KEY: ci-dummy-key
+
+  ledger:
+    name: Ledger (CAP + Jest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ledger
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ledger/package-lock.json
+      - run: npm ci
+      - run: npx cds compile srv --to sql > /dev/null
+      - run: npm test

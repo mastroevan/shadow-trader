@@ -1,0 +1,15 @@
+{
+  "xsappname": "shadow-trader-ledger",
+  "tenant-mode": "dedicated",
+  "scopes": [
+    { "name": "$XSAPPNAME.LedgerWriter", "description": "Record theses and risk assessments" },
+    { "name": "$XSAPPNAME.Approver", "description": "Approve or reject theses" },
+    { "name": "$XSAPPNAME.Auditor", "description": "Read-only access to the ledger" }
+  ],
+  "authorities": ["$XSAPPNAME.LedgerWriter"],
+  "role-templates": [
+    { "name": "LedgerWriter", "scope-references": ["$XSAPPNAME.LedgerWriter"] },
+    { "name": "Approver", "scope-references": ["$XSAPPNAME.Approver"] },
+    { "name": "Auditor", "scope-references": ["$XSAPPNAME.Auditor"] }
+  ]
+}

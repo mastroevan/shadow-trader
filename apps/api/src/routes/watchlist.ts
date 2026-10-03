@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import {
   clearLedgerEntries,
   closeTradeEntry,
@@ -19,6 +19,7 @@ import {
   parseNullableNumber,
   isWatchlistStatus,
 } from "../services/watchlistFields";
+import type { LedgerBlocked } from "../services/watchlist";
 
 const router = Router();
 
@@ -117,6 +118,8 @@ router.patch("/watchlist/:id/status", async (req, res) => {
   }
   const move = await moveWatchlistEntry(req.params.id, nextStatus);
 
+  if (move && "blocked" in move) return sendLedgerBlocked(res, move);
+
   if (!move) {
     return res.status(404).json({
       error: "WATCHLIST_ENTRY_NOT_FOUND",
@@ -140,6 +143,8 @@ router.post("/watchlist/:id/paper-trade", async (req, res) => {
     slippage: parseNullableNumber(req.body.slippage),
     notes: typeof req.body.notes === "string" ? req.body.notes : undefined,
   });
+
+  if (move && "blocked" in move) return sendLedgerBlocked(res, move);
 
   if (!move) {
     return res.status(404).json({
@@ -238,5 +243,22 @@ router.delete("/trust-ledger", async (_req, res) => {
 
   return res.json({ deletedCount });
 });
+
+function sendLedgerBlocked(res: Response, { blocked }: LedgerBlocked) {
+  if (blocked.status === "UNAVAILABLE") {
+    return res.status(503).json({
+      error: "LEDGER_UNAVAILABLE",
+      message: "The approval ledger could not be reached, so the trade was not opened.",
+      ledgerThesisId: blocked.ledgerThesisId ?? null,
+      detail: blocked.message,
+    });
+  }
+
+  return res.status(409).json({
+    error: "AWAITING_LEDGER_APPROVAL",
+    message: "This setup passed the risk gate but has no human approval in the ledger yet.",
+    ledgerThesisId: blocked.ledgerThesisId,
+  });
+}
 
 export default router;
