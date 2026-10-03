@@ -1,0 +1,69 @@
+_schema-version: 3.3.0
+ID: shadow-trader-ledger
+version: 1.0.0
+description: "CAP ledger for Shadow Trader: theses, risk assessments, and human approvals."
+parameters:
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm ci
+        - npx cds build --production
+modules:
+  - name: shadow-trader-ledger-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      instances: 1
+      buildpack: nodejs_buildpack
+    build-parameters:
+      builder: npm-ci
+    provides:
+      - name: srv-api # required by consumers of CAP services (e.g. approuter)
+        properties:
+          srv-url: ${default-url}
+    requires:
+      - name: shadow-trader-ledger-auth
+      - name: shadow-trader-ledger-db
+
+  - name: shadow-trader-ledger-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    requires:
+      - name: shadow-trader-ledger-db
+
+resources:
+  - name: shadow-trader-ledger-auth
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: shadow-trader-ledger-${org}-${space}
+        tenant-mode: dedicated
+        oauth2-configuration:
+          credential-types:
+            - "binding-secret"
+            - "x509"
+        role-collections:
+          - name: 'Approver (shadow-trader-ledger ${org}-${space})'
+            description: 'generated'
+            role-template-references:
+              - '$XSAPPNAME.Approver'
+          - name: 'LedgerWriter (shadow-trader-ledger ${org}-${space})'
+            description: 'generated'
+            role-template-references:
+              - '$XSAPPNAME.LedgerWriter'
+          - name: 'Auditor (shadow-trader-ledger ${org}-${space})'
+            description: 'generated'
+            role-template-references:
+              - '$XSAPPNAME.Auditor'
+  - name: shadow-trader-ledger-db
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared

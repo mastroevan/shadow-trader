@@ -8,8 +8,8 @@ import {
 import {
   evaluateTradeGate,
   type GateStatus,
-  type TradeGateEvaluation,
 } from "./tradeGatekeeper";
+import { checkLedgerApproval, type LedgerDecision } from "./ledgerGate";
 
 export type WatchlistEntry = {
   id: string;
@@ -48,6 +48,7 @@ export type WatchlistEntry = {
   riskPerShare?: number | null;
   gateStatus?: GateStatus;
   gateReasons?: string[];
+  ledgerThesisId?: string;
   triggerPrice?: number | null;
   triggeredAt?: string;
   triggerReason?: string;
@@ -108,6 +109,8 @@ export type LedgerEntry = WatchlistEntry & {
 const KIND_WATCHLIST = "WATCHLIST";
 const KIND_PAPER_TRADE = "PAPER_TRADE";
 const KIND_LEDGER = "LEDGER";
+
+export type LedgerBlocked = { blocked: Exclude<LedgerDecision, { status: "APPROVED" | "DISABLED" }> };
 
 export async function listWatchlistEntries(): Promise<WatchlistEntry[]> {
   const db = await getDb();
@@ -202,7 +205,7 @@ export async function upsertWatchlistEntry(
 export async function moveWatchlistEntry(
   id: string,
   status: WatchlistStatus
-): Promise<{ entry: TradeEntry | LedgerEntry; previousEntry: WatchlistEntry } | null> {
+): Promise<{ entry: TradeEntry | LedgerEntry; previousEntry: WatchlistEntry } | LedgerBlocked | null> {
   if (status === "Watching" || status === "Triggered Review" || status === "Pending Confirmation") return null;
 
   const db = await getDb();
@@ -212,8 +215,13 @@ export async function moveWatchlistEntry(
 
   if (!row || row.kind !== KIND_WATCHLIST) return null;
 
-  const previousEntry = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
-  if (status === "Triggered" && previousEntry.gateStatus !== "APPROVED") return null;
+  let previousEntry = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
+  if (status === "Triggered") {
+    if (previousEntry.gateStatus !== "APPROVED") return null;
+    const approval = await requireLedgerApproval(previousEntry);
+    if ("blocked" in approval) return approval;
+    previousEntry = approval.entry;
+  }
   const movedEntry = status === "Triggered"
     ? buildTradeEntry(previousEntry, {})
     : buildLedgerEntry(previousEntry, status);
@@ -231,35 +239,6 @@ export async function moveWatchlistEntry(
   ]);
 
   return { entry: movedEntry, previousEntry };
-}
-
-export async function rollbackWatchlistMove(
-  movedEntry: TradeEntry | LedgerEntry,
-  previousEntry: WatchlistEntry
-): Promise<void> {
-  const db = await getDb();
-
-  if (movedEntry.status === "Triggered") {
-    await db.tradeLifecycleEntry.deleteMany({
-      where: {
-        id: movedEntry.id,
-        kind: KIND_PAPER_TRADE,
-      },
-    });
-  } else {
-    await db.tradeLifecycleEntry.deleteMany({
-      where: {
-        id: movedEntry.id,
-        kind: KIND_LEDGER,
-      },
-    });
-  }
-
-  await db.tradeLifecycleEntry.upsert({
-    where: { id: previousEntry.id },
-    create: lifecycleRowInput(KIND_WATCHLIST, previousEntry),
-    update: lifecycleRowUpdate(KIND_WATCHLIST, previousEntry),
-  });
 }
 
 export async function deleteWatchlistEntry(id: string): Promise<boolean> {
@@ -308,7 +287,7 @@ export async function openPaperTradeEntry(
     slippage?: number | null;
     notes?: string;
   }
-): Promise<{ entry: TradeEntry; previousEntry: WatchlistEntry } | null> {
+): Promise<{ entry: TradeEntry; previousEntry: WatchlistEntry } | LedgerBlocked | null> {
   const db = await getDb();
   const row = await db.tradeLifecycleEntry.findUnique({
     where: { id },
@@ -316,8 +295,11 @@ export async function openPaperTradeEntry(
 
   if (!row || row.kind !== KIND_WATCHLIST) return null;
 
-  const previousEntry = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
-  if (previousEntry.gateStatus !== "APPROVED") return null;
+  const storedEntry = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
+  if (storedEntry.gateStatus !== "APPROVED") return null;
+  const approval = await requireLedgerApproval(storedEntry);
+  if ("blocked" in approval) return approval;
+  const previousEntry = approval.entry;
   const trade = buildTradeEntry(previousEntry, input);
 
   await db.$transaction([
@@ -330,6 +312,31 @@ export async function openPaperTradeEntry(
   ]);
 
   return { entry: trade, previousEntry };
+}
+
+// Second, human gate: the entry must also be approved in the SAP ledger. Saves
+// the ledger thesis id on the watchlist row the first time one is recorded, so
+// later attempts check the same thesis instead of recording a new one.
+async function requireLedgerApproval(
+  entry: WatchlistEntry
+): Promise<{ entry: WatchlistEntry } | LedgerBlocked> {
+  const decision = await checkLedgerApproval(entry);
+  const ledgerThesisId = "ledgerThesisId" in decision ? decision.ledgerThesisId : undefined;
+  const nextEntry = ledgerThesisId && ledgerThesisId !== entry.ledgerThesisId
+    ? { ...entry, ledgerThesisId }
+    : entry;
+
+  if (nextEntry !== entry) {
+    const db = await getDb();
+    await db.tradeLifecycleEntry.update({
+      where: { id: entry.id },
+      data: lifecycleRowUpdate(KIND_WATCHLIST, nextEntry),
+    });
+  }
+
+  if (decision.status === "APPROVED" || decision.status === "DISABLED") return { entry: nextEntry };
+
+  return { blocked: decision };
 }
 
 export async function markWatchlistEntryPendingConfirmation(

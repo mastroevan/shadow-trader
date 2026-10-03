@@ -9,7 +9,7 @@ const allowedEmails = new Set(
     .filter(Boolean)
 );
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn } = NextAuth({
   providers: [
     GitHub({
       clientId: process.env.AUTH_GITHUB_ID,
