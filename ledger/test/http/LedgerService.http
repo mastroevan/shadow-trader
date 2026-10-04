@@ -1,0 +1,187 @@
+# Every endpoint as every user, with the expected status written down first.
+# Start the ledger with `npm run watch`, then send requests one at a time
+# (VS Code REST Client). The Jest "access matrix" checks the same table.
+#
+# Sample data (test/data):
+#   1111… BTC-USD  approved by evan
+#   2222… NVDA     rejected by evan
+#   3333… ETH-USD  pending, has a risk assessment
+
+@server = http://localhost:4004
+@approved = 11111111-1111-4111-8111-111111111111
+@pending = 33333333-3333-4333-8333-333333333333
+
+
+#######################################################################
+# agent (LedgerWriter): records theses and risk assessments, nothing else
+#######################################################################
+
+### agent: read theses -> 200
+GET {{server}}/ledger/TradeTheses
+Authorization: Basic agent:
+
+### agent: create thesis -> 201 (createdBy comes back as agent, even though the body says evan)
+POST {{server}}/ledger/TradeTheses
+Authorization: Basic agent:
+Content-Type: application/json
+
+{ "ticker": "SOL-USD", "direction": "long", "thesis": "Range breakout", "confidence": 0.71, "createdBy": "evan" }
+
+### agent: create risk assessment -> 201
+POST {{server}}/ledger/RiskAssessments
+Authorization: Basic agent:
+Content-Type: application/json
+
+{ "thesis_ID": "{{pending}}", "riskScore": 30, "maxLossUSD": 100, "stopLoss": 2400 }
+
+### agent: read approvals -> 200
+GET {{server}}/ledger/Approvals
+Authorization: Basic agent:
+
+### agent: write an approval directly -> 405 (Approvals is @readonly)
+POST {{server}}/ledger/Approvals
+Authorization: Basic agent:
+Content-Type: application/json
+
+{ "thesis_ID": "{{pending}}", "decision": "approved", "reason": "self-approve" }
+
+### agent: decide -> 403 (the agent cannot approve its own trade)
+POST {{server}}/ledger/decide
+Authorization: Basic agent:
+Content-Type: application/json
+
+{ "thesis": "{{pending}}", "decision": "approved", "reason": "self-approve" }
+
+### agent: isApproved -> 200, true
+GET {{server}}/ledger/isApproved(thesis={{approved}})
+Authorization: Basic agent:
+
+### agent: update thesis -> 403
+PATCH {{server}}/ledger/TradeTheses({{approved}})
+Authorization: Basic agent:
+Content-Type: application/json
+
+{ "ticker": "X" }
+
+### agent: delete thesis -> 403
+DELETE {{server}}/ledger/TradeTheses({{approved}})
+Authorization: Basic agent:
+
+
+#######################################################################
+# evan (Approver): reads everything, decides, writes nothing directly
+#######################################################################
+
+### evan: read theses -> 200
+GET {{server}}/ledger/TradeTheses
+Authorization: Basic evan:
+
+### evan: create thesis -> 403
+POST {{server}}/ledger/TradeTheses
+Authorization: Basic evan:
+Content-Type: application/json
+
+{ "ticker": "SOL-USD", "direction": "long", "thesis": "x" }
+
+### evan: create risk assessment -> 403
+POST {{server}}/ledger/RiskAssessments
+Authorization: Basic evan:
+Content-Type: application/json
+
+{ "thesis_ID": "{{pending}}", "riskScore": 30 }
+
+### evan: write an approval directly -> 405
+POST {{server}}/ledger/Approvals
+Authorization: Basic evan:
+Content-Type: application/json
+
+{ "thesis_ID": "{{pending}}", "decision": "approved", "reason": "x" }
+
+### evan: decide pending thesis -> 200 (send once)
+POST {{server}}/ledger/decide
+Authorization: Basic evan:
+Content-Type: application/json
+
+{ "thesis": "{{pending}}", "decision": "approved", "reason": "Stop and size within limits" }
+
+### evan: decide the same thesis again -> 409
+POST {{server}}/ledger/decide
+Authorization: Basic evan:
+Content-Type: application/json
+
+{ "thesis": "{{pending}}", "decision": "rejected", "reason": "changed my mind" }
+
+### evan: decide a thesis that does not exist -> 404
+POST {{server}}/ledger/decide
+Authorization: Basic evan:
+Content-Type: application/json
+
+{ "thesis": "00000000-0000-4000-8000-000000000000", "decision": "rejected", "reason": "x" }
+
+### evan: update thesis -> 403
+PATCH {{server}}/ledger/TradeTheses({{approved}})
+Authorization: Basic evan:
+Content-Type: application/json
+
+{ "ticker": "X" }
+
+### evan: delete thesis -> 403
+DELETE {{server}}/ledger/TradeTheses({{approved}})
+Authorization: Basic evan:
+
+
+#######################################################################
+# auditor (Auditor): read-only
+#######################################################################
+
+### auditor: read theses -> 200
+GET {{server}}/ledger/TradeTheses
+Authorization: Basic auditor:
+
+### auditor: read approvals -> 200
+GET {{server}}/ledger/Approvals
+Authorization: Basic auditor:
+
+### auditor: create thesis -> 403
+POST {{server}}/ledger/TradeTheses
+Authorization: Basic auditor:
+Content-Type: application/json
+
+{ "ticker": "SOL-USD", "direction": "long", "thesis": "x" }
+
+### auditor: create risk assessment -> 403
+POST {{server}}/ledger/RiskAssessments
+Authorization: Basic auditor:
+Content-Type: application/json
+
+{ "thesis_ID": "{{pending}}", "riskScore": 30 }
+
+### auditor: decide -> 403
+POST {{server}}/ledger/decide
+Authorization: Basic auditor:
+Content-Type: application/json
+
+{ "thesis": "{{pending}}", "decision": "approved", "reason": "x" }
+
+### auditor: isApproved -> 200
+GET {{server}}/ledger/isApproved(thesis={{pending}})
+Authorization: Basic auditor:
+
+### auditor: update thesis -> 403
+PATCH {{server}}/ledger/TradeTheses({{approved}})
+Authorization: Basic auditor:
+Content-Type: application/json
+
+{ "ticker": "X" }
+
+### auditor: delete thesis -> 403
+DELETE {{server}}/ledger/TradeTheses({{approved}})
+Authorization: Basic auditor:
+
+
+#######################################################################
+# no login
+#######################################################################
+
+### anonymous: read theses -> 401
+GET {{server}}/ledger/TradeTheses

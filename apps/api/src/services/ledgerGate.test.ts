@@ -8,7 +8,7 @@ import {
   type LedgerThesisInput,
 } from "./ledgerGate";
 
-const config: LedgerConfig = { url: "http://ledger.test", timeoutMs: 1000, username: "writer", password: "" };
+const config: LedgerConfig = { url: "http://ledger.test", timeoutMs: 1000, username: "agent", password: "" };
 
 const entry: LedgerThesisInput = {
   symbol: "btc-usd",
@@ -66,7 +66,7 @@ test("first attempt records thesis and risk assessment, then waits for approval"
     "POST http://ledger.test/ledger/RiskAssessments",
   ]);
   assert.equal((calls[1].body as { thesis_ID: string }).thesis_ID, "t-1");
-  assert.equal(calls[0].authorization, `Basic ${Buffer.from("writer:").toString("base64")}`);
+  assert.equal(calls[0].authorization, `Basic ${Buffer.from("agent:").toString("base64")}`);
 });
 
 test("approved thesis lets the trade through", async () => {

@@ -12,6 +12,8 @@ No order executes until `isApproved(thesis)` returns `true`.
 | Approval gate (Shadow Trader side) | [apps/api/src/services/ledgerGate.ts](../apps/api/src/services/ledgerGate.ts), called from `openPaperTradeEntry` / `moveWatchlistEntry` |
 | BTP Cloud Foundry + HANA Cloud + XSUAA | [mta.yaml](mta.yaml) |
 | Tests | [test/approval-gate.test.js](test/approval-gate.test.js), [ledgerGate.test.ts](../apps/api/src/services/ledgerGate.test.ts) |
+| Every endpoint as every user, expected status written first | [test/http/LedgerService.http](test/http/LedgerService.http) (same table as the Jest "access matrix") |
+| Sample rows (dev and tests only, never deployed) | [test/data/](test/data) |
 | CI | `ledger` job in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) |
 
 ## Approval rules
@@ -20,7 +22,11 @@ No order executes until `isApproved(thesis)` returns `true`.
 - An approver can't approve a thesis they recorded themselves (four-eyes rule).
 - Each thesis gets exactly one decision (enforced by a unique constraint).
 - A thesis needs at least one risk assessment before it can be approved.
-- Nothing is updated or deleted; `createdBy`/`createdAt` are the audit trail.
+- Nothing is updated or deleted. No role is granted UPDATE or DELETE, and a
+  `before(['UPDATE','DELETE'])` handler rejects them anyway (405) as a second layer.
+- `createdBy`/`createdAt` come from `managed`: CAP fills `createdBy` from the
+  authenticated user and ignores any value sent in the request body, so who wrote
+  a row comes from the login (the XSUAA token in production), never from the client.
 
 ## How Shadow Trader uses it
 
@@ -44,12 +50,20 @@ npm run watch   # http://localhost:4004, SQLite in memory, mocked users
 npm test        # Jest
 ```
 
-Mocked users (empty password): `writer`, `approver`, `auditor`, and `solo` (writer + approver, used to test the four-eyes rule).
+Mock users (empty password), defined only for the `development` and `hybrid` profiles; production uses XSUAA:
+
+| User | Role | Can |
+| --- | --- | --- |
+| `agent` | LedgerWriter | record theses and risk assessments |
+| `evan` | Approver | call `decide` |
+| `auditor` | Auditor | read |
+
+Auth kind is `basic`, so only these three users exist. `mocked` would also let in CAP's built-in demo users and any username.
 
 Approve a thesis locally:
 
 ```bash
-curl -u approver: -H 'Content-Type: application/json' \
+curl -u evan: -H 'Content-Type: application/json' \
   -d '{"thesis":"<ledgerThesisId>","decision":"approved","reason":"..."}' \
   http://localhost:4004/ledger/decide
 ```

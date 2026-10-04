@@ -28,16 +28,24 @@
     "requires": {
       "db": {
         "[development]": { "kind": "sqlite", "credentials": { "url": ":memory:" } },
+        "[hybrid]": { "kind": "hana" },
         "[production]": { "kind": "hana" }
       },
       "auth": {
         "[development]": {
-          "kind": "mocked",
+          "kind": "basic",
           "users": {
-            "writer":   { "password": "", "roles": ["LedgerWriter"] },
-            "approver": { "password": "", "roles": ["Approver"] },
-            "auditor":  { "password": "", "roles": ["Auditor"] },
-            "solo":     { "password": "", "roles": ["LedgerWriter", "Approver"] }
+            "agent":   { "password": "", "roles": ["LedgerWriter"] },
+            "evan":    { "password": "", "roles": ["Approver"] },
+            "auditor": { "password": "", "roles": ["Auditor"] }
+          }
+        },
+        "[hybrid]": {
+          "kind": "basic",
+          "users": {
+            "agent":   { "password": "", "roles": ["LedgerWriter"] },
+            "evan":    { "password": "", "roles": ["Approver"] },
+            "auditor": { "password": "", "roles": ["Auditor"] }
           }
         },
         "[production]": { "kind": "xsuaa" }
