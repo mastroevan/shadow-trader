@@ -71,14 +71,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ledger
+        working-directory: apps/ledger
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
-          cache-dependency-path: ledger/package-lock.json
+          cache-dependency-path: apps/ledger/package-lock.json
       - run: npm ci
       - run: npx cds compile srv --to sql > /dev/null
       - run: npm test

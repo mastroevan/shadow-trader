@@ -1,4 +1,4 @@
-// Human-approval gate backed by the SAP CAP ledger (`ledger/` at the repo root).
+// Human-approval gate backed by the SAP CAP ledger (`apps/ledger/`).
 //
 // A watchlist entry that passed the automated risk gate still cannot open a
 // paper trade until a human Approver has recorded an approval in the ledger.

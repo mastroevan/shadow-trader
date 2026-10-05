@@ -8,7 +8,7 @@ const as = user => (user ? { auth: { username: user, password: '' } } : {})
 const statusOf = promise => promise.then(r => r.status, e => e.response?.status ?? e.status ?? e.code)
 
 const newThesis = (overrides = {}) => ({
-  ticker: 'BTC-USD', direction: 'long', thesis: 'Breakout above range high', confidence: 0.7, model: 'gpt-test',
+  ticker: 'BTC/USD', direction: 'long', thesis: 'Breakout above range high', confidence: 0.7, model: 'gpt-test',
   ...overrides,
 })
 
@@ -49,7 +49,7 @@ describe('checklist', () => {
       expect(await statusOf(DELETE(`/ledger/TradeTheses(${id})`, as(user)))).toBe(403)
     }
     const { data } = await GET(`/ledger/TradeTheses(${id})`, as('auditor'))
-    expect(data.ticker).toBe('BTC-USD')
+    expect(data.ticker).toBe('BTC/USD')
   })
 
   // The agent records theses but cannot approve them, its own or anyone else's.
@@ -198,7 +198,7 @@ describe('access matrix', () => {
 
   test('sample data is loaded', async () => {
     const { data } = await GET('/ledger/TradeTheses', as('auditor'))
-    expect(data.value.map(t => t.ticker)).toEqual(expect.arrayContaining(['BTC-USD', 'NVDA', 'ETH-USD']))
+    expect(data.value.map(t => t.ticker)).toEqual(expect.arrayContaining(['BTC/USD', 'NVDA', 'ETH/USD']))
     expect(await isApproved('11111111-1111-4111-8111-111111111111')).toBe(true)
     expect(await isApproved('22222222-2222-4222-8222-222222222222')).toBe(false)
   })

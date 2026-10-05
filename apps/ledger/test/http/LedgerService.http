@@ -3,9 +3,9 @@
 # (VS Code REST Client). The Jest "access matrix" checks the same table.
 #
 # Sample data (test/data):
-#   1111… BTC-USD  approved by evan
+#   1111… BTC/USD  approved by evan
 #   2222… NVDA     rejected by evan
-#   3333… ETH-USD  pending, has a risk assessment
+#   3333… ETH/USD  pending, has a risk assessment
 
 @server = http://localhost:4004
 @approved = 11111111-1111-4111-8111-111111111111
@@ -25,7 +25,7 @@ POST {{server}}/ledger/TradeTheses
 Authorization: Basic agent:
 Content-Type: application/json
 
-{ "ticker": "SOL-USD", "direction": "long", "thesis": "Range breakout", "confidence": 0.71, "createdBy": "evan" }
+{ "ticker": "SOL/USD", "direction": "long", "thesis": "Range breakout", "confidence": 0.71, "createdBy": "evan" }
 
 ### agent: create risk assessment -> 201
 POST {{server}}/ledger/RiskAssessments
@@ -81,7 +81,7 @@ POST {{server}}/ledger/TradeTheses
 Authorization: Basic evan:
 Content-Type: application/json
 
-{ "ticker": "SOL-USD", "direction": "long", "thesis": "x" }
+{ "ticker": "SOL/USD", "direction": "long", "thesis": "x" }
 
 ### evan: create risk assessment -> 403
 POST {{server}}/ledger/RiskAssessments
@@ -147,7 +147,7 @@ POST {{server}}/ledger/TradeTheses
 Authorization: Basic auditor:
 Content-Type: application/json
 
-{ "ticker": "SOL-USD", "direction": "long", "thesis": "x" }
+{ "ticker": "SOL/USD", "direction": "long", "thesis": "x" }
 
 ### auditor: create risk assessment -> 403
 POST {{server}}/ledger/RiskAssessments

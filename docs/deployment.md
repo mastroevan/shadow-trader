@@ -52,7 +52,7 @@ INTERNAL_API_KEY
 
 Optional, API service (all have defaults — see `.env.example` for the full list): trade risk gate tuning (`ACCOUNT_BALANCE`, `RISK_PER_TRADE_PERCENT`, `MIN_RISK_REWARD_RATIO`, `MIN_CONFIDENCE_SCORE`, `MIN_VOLUME_RATIO`, `MIN_TREND_STRENGTH`, `COOLDOWN_HOURS_AFTER_LOSS`), the startup scanner (`STARTUP_SCAN_*`), and automation notifications (`DISCORD_WEBHOOK_URL`, `TWILIO_*`).
 
-Optional, API service — human approval ledger: `LEDGER_URL` turns on the ledger gate (no paper trade opens without an approval recorded in the SAP CAP ledger; see `ledger/readme.md`). In production also set `LEDGER_TOKEN_URL`, `LEDGER_CLIENT_ID`, `LEDGER_CLIENT_SECRET` from a service key on the ledger's XSUAA instance (`<uaa url>/oauth/token`). `LEDGER_TIMEOUT_MS` defaults to 5000.
+Optional, API service — human approval ledger: `LEDGER_URL` turns on the ledger gate (no paper trade opens without an approval recorded in the SAP CAP ledger; see `apps/ledger/readme.md`). In production also set `LEDGER_TOKEN_URL`, `LEDGER_CLIENT_ID`, `LEDGER_CLIENT_SECRET` from a service key on the ledger's XSUAA instance (`<uaa url>/oauth/token`). `LEDGER_TIMEOUT_MS` defaults to 5000.
 
 Web service:
 

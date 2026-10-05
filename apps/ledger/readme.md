@@ -9,12 +9,13 @@ No order executes until `isApproved(thesis)` returns `true`.
 | One CAP service | [srv/ledger-service.cds](srv/ledger-service.cds), [srv/ledger-service.js](srv/ledger-service.js) |
 | Three roles (LedgerWriter, Approver, Auditor) | [xs-security.json](xs-security.json), `@restrict` in the service |
 | Approval gate (ledger side) | `decide` / `isApproved` in [srv/ledger-service.js](srv/ledger-service.js) |
-| Approval gate (Shadow Trader side) | [apps/api/src/services/ledgerGate.ts](../apps/api/src/services/ledgerGate.ts), called from `openPaperTradeEntry` / `moveWatchlistEntry` |
+| Approval gate (Shadow Trader side) | [apps/api/src/services/ledgerGate.ts](../api/src/services/ledgerGate.ts), called from `openPaperTradeEntry` / `moveWatchlistEntry` |
 | BTP Cloud Foundry + HANA Cloud + XSUAA | [mta.yaml](mta.yaml) |
-| Tests | [test/approval-gate.test.js](test/approval-gate.test.js), [ledgerGate.test.ts](../apps/api/src/services/ledgerGate.test.ts) |
+| Read-only MCP access for agents (Auditor role) | [srv/audit-service.cds](srv/audit-service.cds), served at `/mcp/audit` by `@cap-js/mcp` |
+| Tests | [test/approval-gate.test.js](test/approval-gate.test.js), [test/audit-service.test.js](test/audit-service.test.js), [ledgerGate.test.ts](../api/src/services/ledgerGate.test.ts) |
 | Every endpoint as every user, expected status written first | [test/http/LedgerService.http](test/http/LedgerService.http) (same table as the Jest "access matrix") |
 | Sample rows (dev and tests only, never deployed) | [test/data/](test/data) |
-| CI | `ledger` job in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) |
+| CI | `ledger` job in [.github/workflows/ci.yml](../../.github/workflows/ci.yml) |
 
 ## Approval rules
 
@@ -44,7 +45,12 @@ and does not open the trade. If `LEDGER_URL` is unset, the gate is skipped.
 
 ## Run locally
 
+Requires Node 24.9+ (`nvm use` picks it up from `.nvmrc`). The MCP plugin pulls in
+ES-module-only packages, and Jest can only `require()` those on Node 24.9+ with
+`--experimental-vm-modules`, which `npm test` passes for you.
+
 ```bash
+nvm use
 npm install
 npm run watch   # http://localhost:4004, SQLite in memory, mocked users
 npm test        # Jest
@@ -67,6 +73,24 @@ curl -u evan: -H 'Content-Type: application/json' \
   -d '{"thesis":"<ledgerThesisId>","decision":"approved","reason":"..."}' \
   http://localhost:4004/ledger/decide
 ```
+
+## MCP access (AuditService)
+
+`AuditService` exposes the three ledger tables read-only over MCP at
+`http://localhost:4004/mcp/audit`, with two tools: `describe` (entities and field
+descriptions) and `query` (CQL `SELECT`). Only the `Auditor` role can connect;
+`agent` and `evan` get 403.
+
+In development, `cds.mcp.autowire` registers the server in `~/.claude.json` (Claude Code)
+while the ledger runs, logging in as `auditor`, and removes it again on shutdown.
+Set `"autowire": false` in `package.json` to turn that off.
+
+Tickers are stored in the app's format (`BTC/USD`, `ETH/USD`, `NVDA`); the field
+descriptions and server instructions tell the agent so.
+
+In production, whoever connects needs the `Auditor` scope from XSUAA. The Shadow Trader
+API's service key only carries `LedgerWriter` (via `authorities`), so give an agent its
+own login with the Auditor role collection rather than reusing that key.
 
 ## Deploy to BTP Cloud Foundry
 
