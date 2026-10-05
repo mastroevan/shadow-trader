@@ -30,7 +30,10 @@
   },
   "cds": {
     "mcp": {
-      "autowire": { "user": "auditor", "password": "" }
+      "autowire": {
+        "user": "auditor",
+        "password": ""
+      }
     },
     "requires": {
       "db": {
@@ -41,7 +44,8 @@
           }
         },
         "[hybrid]": {
-          "kind": "hana"
+          "kind": "hana",
+          "credentials": null
         },
         "[production]": {
           "kind": "hana"
