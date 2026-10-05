@@ -64,7 +64,7 @@ If the ledger can't be reached, it refuses with `503`. The agent's credentials o
 | Piece | Where it runs |
 | --- | --- |
 | `LedgerService` (record, `decide`, `isApproved`) | Deployed on BTP Cloud Foundry, HANA Cloud HDI container, XSUAA |
-| `AuditService` over MCP (`/mcp/audit`) | Local and hybrid; next deploy brings it to BTP |
+| `AuditService` over MCP (`/mcp/audit`) | Deployed on BTP alongside `LedgerService` (Auditor login required); also local and hybrid |
 | Approvals | `decide` via [`LedgerService.http`](apps/ledger/test/http/LedgerService.http) or curl; dashboard buttons are not built yet |
 | Tests | 66 Jest tests (`cds.test`, in-memory SQLite) in the `Ledger` CI job |
 | Gate in the hosted app (Render) | Not yet: `LEDGER_*` variables aren't set there, so it runs without the gate |

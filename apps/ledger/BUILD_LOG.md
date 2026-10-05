@@ -98,3 +98,11 @@ Lesson: a green local run says nothing about CI; look at the actual Actions run.
 **16. The deployed app was older than the MCP service.**
 `cf apps` showed the ledger running and `/ledger` returned 401 without a token, as it
 should, but `/mcp/audit` returned 404: the last upload predated AuditService.
+
+**17. Redeploy: the database deployer failed four times.**
+`cf deploy` updated and started the server, but the HDI deployer task failed every retry
+with `Option parameter is not supported by the server; based on detected server version
+unknown`. The real cause was a few lines up in `cf logs ... --recent`: "HANA Database
+instance is stopped". Trial HANA Cloud stops every night. Fix: start the instance in HANA
+Cloud Central, then `cf deploy -i <operation id> -a retry`. The surface error message
+pointed at a version mismatch; the logs showed it was just a stopped database.
