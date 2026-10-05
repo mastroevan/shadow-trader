@@ -61,7 +61,7 @@ If the ledger can't be reached, it refuses with `503`. The agent's credentials o
 | `AuditService` over MCP (`/mcp/audit`) | Deployed on BTP alongside `LedgerService` (Auditor login required); also local and hybrid |
 | Approvals | `decide` via [`LedgerService.http`](apps/ledger/test/http/LedgerService.http) or curl; dashboard buttons are not built yet |
 | Tests | 66 Jest tests (`cds.test`, in-memory SQLite) in the `Ledger` CI job |
-| Gate in the hosted app (Render) | Not yet: `LEDGER_*` variables aren't set there, so it runs without the gate |
+| Hosted app (Render) | Paused; demos run on the local stack (see [Local Setup](#local-setup)) |
 
 Proof on BTP, using the agent's real XSUAA credentials against the deployed ledger:
 
@@ -173,7 +173,7 @@ Optional:
 
 ## Deployment
 
-Hosted demo target: [https://shadow-trader-web.onrender.com](https://shadow-trader-web.onrender.com)
+The hosted Render deployment is currently paused, so demos run on the local stack (see [Local Setup](#local-setup)). The SAP ledger stays deployed on BTP Cloud Foundry.
 
 This repo includes a Render Blueprint at `render.yaml` plus Dockerfiles for the web, API, and agent services. See [docs/deployment.md](docs/deployment.md) for the exact environment variables and deployment order.
 
@@ -189,7 +189,7 @@ The script runs `BTC/USD`, requires a real AI agent response, confirms Coinbase 
 
 ## Project Notes
 
-- Hosted project URL: `https://shadow-trader-web.onrender.com`
+- Hosting: Render deployment paused; run locally.
 - License: included in this repository.
 - Personal walkthrough target: about 3 minutes.
 - Primary use case: Financial Services market research workflow.
