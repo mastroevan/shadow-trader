@@ -6,16 +6,19 @@ using { shadowtrader.ledger as my } from '../db/schema';
  */
 @mcp
 @requires: 'Auditor'
-@mcp.instructions: 'This is an append-only audit ledger; rows are never updated or deleted. Use describe to see the entities, then query to answer questions. TradeTheses is the root: each thesis has risks (RiskAssessments.thesis_ID = TradeTheses.ID) and at most one approval (Approvals.thesis_ID = TradeTheses.ID). A thesis is approved only if it has an Approvals row with decision = ''approved''; a thesis with no Approvals row is still pending. createdBy on TradeTheses is who recorded it (the AI agent); createdBy on Approvals is the human who decided. Tickers use the app format, e.g. BTC/USD, ETH/USD, NVDA.'
+@mcp.instructions: 'This is an append-only audit ledger; rows are never updated or deleted. Use describe to see the entities, then query to answer questions. TradeTheses is the root: each thesis has risks (RiskAssessments.thesis_ID = TradeTheses.ID) and at most one review, a row in Approvals that is either approved or rejected (Approvals.thesis_ID = TradeTheses.ID). A thesis is approved only if it has an Approvals row with decision = ''approved''; a thesis with no Approvals row is still pending. createdBy on TradeTheses is who recorded it (the AI agent); createdBy on Approvals is the human who decided. Tickers use the app format, e.g. BTC/USD, ETH/USD, NVDA.'
 service AuditService {
 
   /** Trade ideas recorded by the AI agent before any trade is opened. */
-  @readonly entity TradeTheses as projection on my.TradeTheses excluding { modifiedAt, modifiedBy };
+  @readonly entity TradeTheses as projection on my.TradeTheses { *, approval as review } excluding { modifiedAt, modifiedBy, approval };
 
   /** Risk numbers recorded for a thesis when it passed the automated risk gate. */
   @readonly entity RiskAssessments as projection on my.RiskAssessments excluding { modifiedAt, modifiedBy };
 
-  /** Human approve/reject decisions. Each thesis has at most one. */
+  /**
+   * Human decisions on theses: one row per decided thesis, either approved or rejected.
+   * The row count is approved + rejected. To count approved theses, filter decision = 'approved'.
+   */
   @readonly entity Approvals as projection on my.Approvals excluding { modifiedAt, modifiedBy };
 }
 
@@ -29,7 +32,7 @@ annotate AuditService.TradeTheses with {
   createdBy  @description: 'User who recorded the thesis, normally the AI agent. Taken from the login, never from the request.';
   createdAt  @description: 'When the thesis was recorded (UTC).';
   risks      @description: 'Risk assessments for this thesis.';
-  approval   @description: 'The approval decision for this thesis; missing means still pending.';
+  review     @description: 'The human review of this thesis: one Approvals row, approved or rejected. Null means still pending. review.decision says which.';
 };
 
 annotate AuditService.RiskAssessments with {

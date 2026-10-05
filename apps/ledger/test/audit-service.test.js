@@ -56,7 +56,7 @@ describe('AuditService over MCP', () => {
   })
 
   test('query answers "which theses are approved, pending or rejected?"', async () => {
-    const rows = await query('SELECT from TradeTheses { ticker, createdBy, approval.decision as decision, approval.createdBy as approver }')
+    const rows = await query('SELECT from TradeTheses { ticker, createdBy, review.decision as decision, review.createdBy as approver }')
     expect(rows).toEqual(expect.arrayContaining([
       { ticker: 'BTC/USD', createdBy: 'agent', decision: 'approved', approver: 'evan' },
       { ticker: 'NVDA', createdBy: 'agent', decision: 'rejected', approver: 'evan' },

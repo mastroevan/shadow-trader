@@ -68,6 +68,13 @@ Proof on BTP, using the agent's real XSUAA credentials against the deployed ledg
 - [The agent's token carries one ledger scope, `LedgerWriter`](docs/evidence/01-agent-token-scopes.png), and no `Approver`.
 - [With that token](docs/evidence/02-curl-201-403-401.png): recording a thesis returns **201**, deleting it **403**,
   approving it with `decide` **403**, the read-only MCP service **403**, and no token at all **401**.
+- [Role collections on BTP](docs/evidence/04-role-collections.png) (LedgerWriter, Approver, Auditor), and
+  [the ones assigned to me](docs/evidence/03-user-roles.png) (Approver and Auditor, not LedgerWriter).
+- [The ledger app on Cloud Foundry with XSUAA and the HANA HDI container bound](docs/evidence/05-cf-dev-space-service-bindings.png).
+- [The HANA Cloud instance running](docs/evidence/06-hana-cloud-db-running.png).
+- [CI passing on all four jobs](docs/evidence/07-gh-ci-passing-all-green.png).
+- [MCP tool-description eval](apps/ledger/test/evals/mcp-questions.md): 27/30 with the original descriptions,
+  29/30 after renaming one confusing field, 3 runs each.
 
 Run it locally (Node 24.9+):
 

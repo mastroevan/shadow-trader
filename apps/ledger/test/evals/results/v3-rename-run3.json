@@ -1,0 +1,348 @@
+{
+  "label": "v3-rename-run3",
+  "model": "gpt-5.4-mini",
+  "score": 10,
+  "total": 10,
+  "ranAt": "2026-10-05T15:03:24.823Z",
+  "results": [
+    {
+      "n": 1,
+      "question": "Which NVDA theses were approved this week, and what reason did the approver give?",
+      "pass": true,
+      "missing": [],
+      "answer": "Approved NVDA thesis this week:\n- Thesis `3cb2a79b-9b13-437e-8cd0-acf2dbcd3e0f` \u2014 approved by `evan` on `2026-10-05T15:02:44.344Z`\n  - Reason: **Volume confirms breakout**",
+      "calls": [
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "TradeTheses",
+              "Approvals"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT thesis.ID, thesis.ticker, thesis.createdAt, createdAt AS approvedAt, createdBy AS approver, reason FROM Approvals WHERE decision = 'approved' AND thesis.ticker = 'NVDA' AND createdAt >= date_trunc('week', CURRENT_DATE) ORDER BY createdAt DESC"
+          },
+          "error": true
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT thesis.ID, thesis.ticker, thesis.createdAt, createdAt AS approvedAt, createdBy AS approver, reason FROM Approvals WHERE decision = 'approved' AND thesis.ticker = 'NVDA' AND createdAt >= 2026-10-05T00:00:00Z - 7*24*60*60*1000 ORDER BY createdAt DESC"
+          },
+          "error": true
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT thesis.ID, thesis.ticker, thesis.createdAt, createdAt AS approvedAt, createdBy AS approver, reason FROM Approvals WHERE decision = 'approved' AND thesis.ticker = 'NVDA' AND createdAt >= '2026-09-28T00:00:00Z' ORDER BY createdAt DESC"
+          },
+          "error": false
+        }
+      ]
+    },
+    {
+      "n": 2,
+      "question": "What is the max loss in USD on the most recently rejected trade, and which ticker was it?",
+      "pass": true,
+      "missing": [],
+      "answer": "The most recently rejected trade was **AAPL**, with a **max loss of USD 90.00**.",
+      "calls": [
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "TradeTheses",
+              "Approvals"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT thesis.ticker AS ticker, thesis.direction AS direction, thesis.risks { maxLossUSD } AS risks, createdAt FROM Approvals WHERE decision = 'rejected' ORDER BY createdAt DESC LIMIT 1"
+          },
+          "error": true
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT from Approvals { createdAt, decision, thesis { ticker, direction, risks { maxLossUSD } } } WHERE decision = 'rejected' ORDER BY createdAt DESC LIMIT 1"
+          },
+          "error": false
+        }
+      ]
+    },
+    {
+      "n": 3,
+      "question": "Are there any theses with no risk assessment? Name them.",
+      "pass": true,
+      "missing": [],
+      "answer": "Yes \u2014 1 thesis has no risk assessment:\n\n- MSFT",
+      "calls": [
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "TradeTheses",
+              "RiskAssessments"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT ID, ticker FROM TradeTheses WHERE NOT EXISTS risks"
+          },
+          "error": false
+        }
+      ]
+    },
+    {
+      "n": 4,
+      "question": "How many theses have been proposed in total, and how many were approved?",
+      "pass": true,
+      "missing": [],
+      "answer": "Total theses proposed: 8  \nApproved: 3",
+      "calls": [
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "TradeTheses",
+              "Approvals"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT count(*) AS totalProposed, count(review.ID) AS totalApproved FROM TradeTheses { review }"
+          },
+          "error": true
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT count(*) AS totalProposed FROM TradeTheses"
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT count(*) AS totalApproved FROM Approvals WHERE decision = 'approved'"
+          },
+          "error": false
+        }
+      ]
+    },
+    {
+      "n": 5,
+      "question": "What is the total combined max loss in USD for all approved long trades?",
+      "pass": true,
+      "missing": [],
+      "answer": "220 USD",
+      "calls": [
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "TradeTheses",
+              "Approvals"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "RiskAssessments"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT sum(r.maxLossUSD) AS totalCombinedMaxLossUSD FROM TradeTheses as t[review.decision = 'approved' and direction = 'long'].risks as r"
+          },
+          "error": true
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT sum(r.maxLossUSD) AS totalCombinedMaxLossUSD FROM TradeTheses as t WHERE t.direction = 'long' AND t.review.decision = 'approved'"
+          },
+          "error": true
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT sum(r.maxLossUSD) AS totalCombinedMaxLossUSD FROM TradeTheses as t, t.risks as r WHERE t.direction = 'long' AND t.review.decision = 'approved'"
+          },
+          "error": true
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT sum(maxLossUSD) AS totalCombinedMaxLossUSD FROM RiskAssessments WHERE thesis.direction = 'long' AND thesis.review.decision = 'approved'"
+          },
+          "error": false
+        }
+      ]
+    },
+    {
+      "n": 6,
+      "question": "Who approved the TSLA short, and why?",
+      "pass": true,
+      "missing": [],
+      "answer": "Evan approved the TSLA short.\n\nWhy: \u201cClean rejection at resistance.\u201d",
+      "calls": [
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "TradeTheses",
+              "Approvals"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT from TradeTheses { ID, ticker, direction, thesis, review { createdBy, decision, reason } } WHERE ticker = 'TSLA' AND direction = 'short'"
+          },
+          "error": false
+        }
+      ]
+    },
+    {
+      "n": 7,
+      "question": "Which theses are still waiting for a decision?",
+      "pass": true,
+      "missing": [],
+      "answer": "Still waiting for a decision: 3 theses.\n\n- AMD \u2014 short \u2014 created 2026-10-05T15:02:44.357Z\n- MSFT \u2014 long \u2014 created 2026-10-05T15:02:44.355Z\n- ETH/USD \u2014 long \u2014 created 2026-10-02T13:30:00.000Z",
+      "calls": [
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "TradeTheses",
+              "Approvals"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT ID, ticker, direction, createdAt, createdBy FROM TradeTheses WHERE review IS NULL ORDER BY createdAt DESC"
+          },
+          "error": true
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT ID, ticker, direction, createdAt, createdBy FROM TradeTheses WHERE review.ID IS NULL ORDER BY createdAt DESC"
+          },
+          "error": false
+        }
+      ]
+    },
+    {
+      "n": 8,
+      "question": "Which thesis has the highest confidence score, and was it approved?",
+      "pass": true,
+      "missing": [],
+      "answer": "The thesis with the highest confidence score is **BTC/USD** with confidence **0.82**. It **was approved**.",
+      "calls": [
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "TradeTheses",
+              "Approvals"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT ID, ticker, confidence, review.decision as decision FROM TradeTheses WHERE confidence IS NOT NULL ORDER BY confidence DESC, createdAt DESC LIMIT 1"
+          },
+          "error": false
+        }
+      ]
+    },
+    {
+      "n": 9,
+      "question": "Who records the theses, and is that the same user who approves them?",
+      "pass": true,
+      "missing": [],
+      "answer": "Theses are recorded by `agent`. Approvals are made by `evan`, so it\u2019s not the same user.",
+      "calls": [
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "TradeTheses",
+              "Approvals"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT DISTINCT createdBy FROM AuditService.TradeTheses"
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT DISTINCT createdBy FROM AuditService.Approvals"
+          },
+          "error": false
+        }
+      ]
+    },
+    {
+      "n": 10,
+      "question": "List every rejected thesis with the reason it was rejected.",
+      "pass": true,
+      "missing": [],
+      "answer": "Rejected theses:\n\n- AAPL \u2014 long \u2014 Confidence below 0.75\n- NVDA \u2014 short \u2014 Risk/reward below 2:1",
+      "calls": [
+        {
+          "tool": "describe",
+          "input": {
+            "entities": [
+              "TradeTheses",
+              "Approvals"
+            ]
+          },
+          "error": false
+        },
+        {
+          "tool": "query",
+          "input": {
+            "cql": "SELECT thesis.ticker, thesis.direction, reason FROM Approvals WHERE decision = 'rejected'"
+          },
+          "error": false
+        }
+      ]
+    }
+  ]
+}
