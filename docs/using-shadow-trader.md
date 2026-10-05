@@ -18,8 +18,6 @@ Required for full AI analysis:
 
 Optional integrations:
 
-- `ARIZE_API_KEY`
-- `ARIZE_SPACE_KEY`
 - `INTERNAL_API_KEY`
 - `API_INTERNAL_BASE_URL`
 

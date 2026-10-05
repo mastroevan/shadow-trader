@@ -17,10 +17,6 @@ services:
         value: fast
       - key: FINNHUB_API_KEY
         sync: false
-      - key: ARIZE_API_KEY
-        sync: false
-      - key: ARIZE_SPACE_KEY
-        sync: false
 
   - type: web
     name: shadow-trader-api
@@ -35,10 +31,6 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: FINNHUB_API_KEY
-        sync: false
-      - key: ARIZE_API_KEY
-        sync: false
-      - key: ARIZE_SPACE_KEY
         sync: false
       - key: AGENT_URL
         value: https://shadow-trader-agent.onrender.com/analyze

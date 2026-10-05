@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { getMarketSnapshot, isValidMarketQuote } from "./marketSnapshot";
-import { traceAgentCall } from "./arizeTracker";
 import { createThesisRecord } from "./theses";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout";
 import { generateSignals } from "../utils/signals";
@@ -202,48 +201,34 @@ async function getAgentThesis(input: AgentThesisInput): Promise<{
   };
 }> {
   try {
-    const { result: thesis, traceId } = await traceAgentCall(
-      "shadow_trader.setups.analyze",
+    const agentResponse = await fetchWithTimeout(
+      AGENT_URL,
       {
-        symbol: input.symbol,
-        assetClass: input.instrument.assetClass,
-        exchange: input.instrument.exchange ?? "unknown",
-        signalCount: input.signalStrings.length,
-        candleCount: input.candles.length,
-        newsCount: input.news.length,
-        quoteSource: input.quote.source ?? "unknown",
-        sma20: input.technicals?.sma20,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input.agentPayload),
       },
-      async () => {
-        const agentResponse = await fetchWithTimeout(
-          AGENT_URL,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(input.agentPayload),
-          },
-          getSafeAgentTimeout()
-        );
-
-        if (!agentResponse.ok) {
-          const errorText = await agentResponse.text();
-
-          throw new Error(
-            `The agent service failed to analyze the symbol. Status ${agentResponse.status}: ${errorText}`
-          );
-        }
-
-        return (await agentResponse.json()) as Record<string, unknown> & {
-          traceId?: string;
-        };
-      }
+      getSafeAgentTimeout()
     );
+
+    if (!agentResponse.ok) {
+      const errorText = await agentResponse.text();
+
+      throw new Error(
+        `The agent service failed to analyze the symbol. Status ${agentResponse.status}: ${errorText}`
+      );
+    }
+
+    const thesis = (await agentResponse.json()) as Record<string, unknown> & {
+      traceId?: string;
+    };
 
     return {
       thesis,
-      traceId,
+      // Per-analysis ID carried through the watchlist and shown in the UI.
+      traceId: thesis.traceId ?? randomUUID(),
       agentStatus: "AI_AGENT",
     };
   } catch (error) {

@@ -8,55 +8,8 @@ const AGENT_HEALTH_URL =
     /\/analyze\/?$/,
     "/health"
   );
-const ARIZE_ENDPOINT = "https://otlp.arize.com/v1/traces";
 
 router.get("/observability/health", async (_req, res) => {
-  const arizeApiKey = process.env.ARIZE_API_KEY?.trim();
-  const arizeSpaceKey = process.env.ARIZE_SPACE_KEY?.trim();
-  const arize = {
-    configured: Boolean(arizeApiKey && arizeSpaceKey),
-    exportCheck: "not_configured" as
-      | "not_configured"
-      | "accepted_or_reachable"
-      | "forbidden"
-      | "failed",
-    message: "",
-  };
-
-  if (arize.configured) {
-    const apiKey = arizeApiKey as string;
-    const spaceKey = arizeSpaceKey as string;
-
-    try {
-      const response = await fetchWithTimeout(
-        ARIZE_ENDPOINT,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-protobuf",
-            api_key: apiKey,
-            space_key: spaceKey,
-          },
-          body: new Uint8Array(),
-        },
-        5000
-      );
-
-      arize.exportCheck =
-        response.status === 403 ? "forbidden" : "accepted_or_reachable";
-      arize.message =
-        response.status === 403
-          ? "Arize rejected the configured API/space keys with 403 Forbidden."
-          : `Arize endpoint responded with ${response.status}; credentials were not rejected with 403.`;
-    } catch (error) {
-      arize.exportCheck = "failed";
-      arize.message =
-        error instanceof Error ? error.message : "Unknown Arize health error";
-    }
-  } else {
-    arize.message = "ARIZE_API_KEY and ARIZE_SPACE_KEY are not both set.";
-  }
-
   let agent: unknown = null;
   let agentReachable = false;
 
@@ -70,23 +23,15 @@ router.get("/observability/health", async (_req, res) => {
     };
   }
 
-  const healthy =
-    agentReachable &&
-    arize.configured &&
-    arize.exportCheck !== "forbidden" &&
-    arize.exportCheck !== "failed";
-
-  if (!healthy) {
+  if (!agentReachable) {
     console.warn("Observability health degraded:", {
-      arize,
       agentReachable,
       agentHealthUrl: AGENT_HEALTH_URL,
     });
   }
 
-  return res.status(healthy ? 200 : 503).json({
-    status: healthy ? "ok" : "degraded",
-    arize,
+  return res.status(agentReachable ? 200 : 503).json({
+    status: agentReachable ? "ok" : "degraded",
     agent: {
       reachable: agentReachable,
       health: agent,

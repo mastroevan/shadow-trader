@@ -2,13 +2,9 @@
 
 [![CI](https://github.com/mastroevan/shadow-trader/actions/workflows/ci.yml/badge.svg)](https://github.com/mastroevan/shadow-trader/actions/workflows/ci.yml)
 
-Shadow Trader is a personal AI market research project: enter a ticker, and the agent gathers live quote data, recent headlines, technical signals, and observability metadata, then turns that evidence into a directional thesis and a watchlist action plan.
+Shadow Trader is a personal AI market research project: enter a ticker, and the agent gathers live quote data, recent headlines, technical signals, then turns that evidence into a directional thesis and a watchlist action plan.
 
 Focus area: **Financial Services**
-
-Observability: **Arize**
-
-Arize/OpenTelemetry traces make each AI agent run inspectable and debuggable. The trace id is returned in the UI and can be used to inspect the agent run in Arize.
 
 ## What It Does
 
@@ -20,7 +16,6 @@ Arize/OpenTelemetry traces make each AI agent run inspectable and debuggable. Th
 - Generates an actionable watchlist plan with trigger, invalidation, watch conditions, entry zone, stop loss, take profit, risk/reward, and warnings.
 - Handles watchlist eligibility from confidence: `75%+` auto-adds, `60-74%` requires manual review, and below `60%` is rejected from watchlist tracking.
 - Saves watchlist, paper-trade, ledger, and thesis records through the Node API.
-- Emits Arize-compatible trace metadata for agent observability.
 - Records every trade thesis and risk assessment in an SAP CAP ledger on BTP, and opens no paper trade until a human approval is recorded there (see [Human approval ledger](#human-approval-ledger-sap-btp)).
 
 ## Architecture
@@ -32,7 +27,6 @@ flowchart LR
   API --> Yahoo["Yahoo chart data"]
   API --> Agent["Python OpenAI/LangGraph agent"]
   Agent --> OpenAI["OpenAI model"]
-  Agent --> Arize["Arize traces"]
   API --> Postgres["PostgreSQL via Prisma"]
   UI --> Postgres
   API -- "record thesis, isApproved?" --> Ledger["SAP CAP ledger (BTP, HANA Cloud, XSUAA)"]
@@ -98,8 +92,7 @@ More detail: [ledger readme](apps/ledger/readme.md) (rules, roles, deploy) ·
 2. Select `crypto` or `stock`, then enter a symbol or click a demo ticker.
 3. Click `Scan Setup`.
 4. Review the AI Analysis output: strategy, trading style, analysis timeframe, expected hold, setup type, bias, confidence, and reason.
-5. Point out the trace id and Arize observability hook.
-6. Explain the confidence decision: high-confidence setups are added automatically, moderate-confidence setups can be added manually, and low-confidence setups are rejected from watchlist tracking.
+5. Explain the confidence decision: high-confidence setups are added automatically, moderate-confidence setups can be added manually, and low-confidence setups are rejected from watchlist tracking.
 
 ## Local Setup
 
@@ -164,8 +157,6 @@ Optional:
 
 - `AGENT_URL`
 - `AGENT_TIMEOUT_MS`
-- `ARIZE_API_KEY`
-- `ARIZE_SPACE_KEY`
 - `NEXT_PUBLIC_FRONTEND_URL`
 - `API_INTERNAL_BASE_URL`
 - `AUTH_ALLOWED_EMAILS`
@@ -202,7 +193,3 @@ The script runs `BTC/USD`, requires a real AI agent response, confirms Coinbase 
 - License: included in this repository.
 - Personal walkthrough target: about 3 minutes.
 - Primary use case: Financial Services market research workflow.
-
-## Arize / Agent Builder
-
-Connect the same Arize project to your observability workflow to inspect agent runs, compare thesis quality, and debug failures. The app sends agent traces to Arize through OpenTelemetry when `ARIZE_API_KEY` and `ARIZE_SPACE_KEY` are configured.

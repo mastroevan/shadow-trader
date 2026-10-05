@@ -33,8 +33,6 @@ OPENAI_MODEL_FAST=gpt-5.4-mini
 OPENAI_MODEL_DEEP=gpt-5.5
 SHADOW_TRADER_MODE=fast
 FINNHUB_API_KEY
-ARIZE_API_KEY
-ARIZE_SPACE_KEY
 ```
 
 API service:
@@ -42,8 +40,6 @@ API service:
 ```text
 DATABASE_URL=<postgres connection string>
 FINNHUB_API_KEY
-ARIZE_API_KEY
-ARIZE_SPACE_KEY
 AGENT_URL=https://shadow-trader-agent.onrender.com/analyze
 AGENT_TIMEOUT_MS=95000
 NEXT_PUBLIC_FRONTEND_URL=https://shadow-trader-web.onrender.com
