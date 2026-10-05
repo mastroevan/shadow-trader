@@ -69,6 +69,12 @@ If the ledger can't be reached, it refuses with `503`. The agent's credentials o
 | Tests | 66 Jest tests (`cds.test`, in-memory SQLite) in the `Ledger` CI job |
 | Gate in the hosted app (Render) | Not yet: `LEDGER_*` variables aren't set there, so it runs without the gate |
 
+Proof on BTP, using the agent's real XSUAA credentials against the deployed ledger:
+
+- [The agent's token carries one ledger scope, `LedgerWriter`](docs/evidence/01-agent-token-scopes.png), and no `Approver`.
+- [With that token](docs/evidence/02-curl-201-403-401.png): recording a thesis returns **201**, deleting it **403**,
+  approving it with `decide` **403**, the read-only MCP service **403**, and no token at all **401**.
+
 Run it locally (Node 24.9+):
 
 ```bash
