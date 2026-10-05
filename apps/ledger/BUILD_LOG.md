@@ -106,3 +106,14 @@ unknown`. The real cause was a few lines up in `cf logs ... --recent`: "HANA Dat
 instance is stopped". Trial HANA Cloud stops every night. Fix: start the instance in HANA
 Cloud Central, then `cf deploy -i <operation id> -a retry`. The surface error message
 pointed at a version mismatch; the logs showed it was just a stopped database.
+
+**18. The approval gate was silently off in the running API.**
+An end-to-end run opened a paper trade with no approval at all (201), even though
+`LEDGER_URL` was in `.env`. The API called `dotenv.config()` in `index.ts` after its
+imports, and JavaScript runs imports first, so `ledgerGate.ts` read `LEDGER_URL` while it
+was still empty and switched the gate off. The unit tests passed because they hand the gate
+its config directly; nothing tested the running app's `.env` loading. Proof: the same request
+returned 409 once `LEDGER_URL` was exported in the shell. Fix: `src/loadEnv.ts`, imported
+first in `index.ts`. The same bug had been hiding any risk thresholds set in `.env`.
+Lesson: a unit test of a gate is not a test that the gate is on.
+
