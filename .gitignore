@@ -1,21 +1,33 @@
+# Node / Frontend
 node_modules/
-venv/
-.venv/
 .next/
 dist/
 build/
+apps/web/package-lock.json
+apps/web/tsconfig.tsbuildinfo
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Mac OS
+.DS_Store
+
+# Secrets & Environment Variables
 .env
 .env.local
 apps/**/.env.local
-apps/web/package-lock.json
-apps/api/data/
-.DS_Store
-__pycache__/
-*.pyc
+default-env.json
 gcloud-key.json
 google-service-account.json
-.DS_Store
-.DS_Store
-apps/api/.DS_Store
-apps/web/tsconfig.tsbuildinfo
 apps/api/google-service-account.json
+
+# API Data
+apps/api/data/
+
+# SAP BTP / CAP Generated Files
+.cdsrc-private.json
+gen/
+*.tar

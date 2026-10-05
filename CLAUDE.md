@@ -17,6 +17,7 @@ Data flow: `web (Next.js UI)` → `web /api/backend/[...path]` proxy (adds `x-ap
 ## Common commands
 
 Install (per app — there is no root workspace tooling):
+
 ```bash
 cd apps/web && npm install
 cd apps/api && npm install
@@ -24,6 +25,7 @@ cd apps/agent && python3 -m venv venv && source venv/bin/activate && pip install
 ```
 
 Run each service in its own terminal, in this order (agent, then api, then web):
+
 ```bash
 cd apps/agent && source venv/bin/activate && uvicorn server:app --reload --port 8000
 cd apps/api && npm run dev        # nodemon + tsx, watches src/
@@ -31,6 +33,7 @@ cd apps/web && npm run dev        # next dev
 ```
 
 API (`apps/api`):
+
 ```bash
 npm run build            # prisma generate && tsc
 npm run test             # tsx --test "src/**/*.test.ts" — runs ALL *.test.ts under src
@@ -39,20 +42,25 @@ npm run db:push          # prisma db push
 npm run prisma:generate  # regenerate client into src/generated/prisma
 npx prisma migrate dev   # create/apply a local migration
 ```
+
 Tests use Node's built-in `node:test` + `node:assert/strict` (not Jest/Vitest). Test files sit next to the code they cover (`*.test.ts`), e.g. `src/utils/signals.test.ts`, `src/utils/symbols.test.ts`, `src/services/tradeGatekeeper.test.ts`.
 
 Web (`apps/web`):
+
 ```bash
 npm run build
 npm run lint    # next lint
 ```
+
 There is no web test suite currently.
 
 Root-level (`package.json` at repo root):
+
 ```bash
 npm run proof:e2e:btc -- --write   # scripts/e2e_btc_proof.mjs — full E2E proof against BTC/USD
 npm run proof:e2e                  # scripts/e2e_proof.mjs
 ```
+
 These proof scripts require all three services running locally (or `API_BASE_URL` pointed at a hosted deployment) and exercise the real flow: agent call → quote/candle fetch → watchlist save → paper trade open/close.
 
 Env vars live in a single root `.env` (all three apps `dotenv.config()` up to `../../.env` from their own directory) plus `apps/web/.env.local` for web-only Next.js vars. Copy `.env.example` to get started; see it and `docs/deployment.md` for the full variable list and required-vs-optional split.
@@ -62,7 +70,7 @@ Env vars live in a single root `.env` (all three apps `dotenv.config()` up to `.
 - `index.ts` — Express app wiring. `requireApiKey` middleware (`middleware/apiKeyAuth.ts`) guards every `/api/*` route via `x-api-key` or `Authorization: Bearer <key>`, checked against `INTERNAL_API_KEY`/`SHADOW_TRADER_API_KEY`; if neither is set, auth is a no-op (dev convenience). On boot it also starts `automationScheduler` and `startupScanner`.
 - Routes (`routes/*.ts`) are thin — they parse/validate `req.body`, call a service, and shape the HTTP response. Business logic lives in `services/`.
 - `services/setupAnalysis.ts` — the core orchestration for `POST /api/setups/analyze`: resolves the instrument, fetches a market snapshot, generates technical signals (`utils/signals.ts`), calls the Python agent (`services/arizeTracker.ts` wraps the call in an OpenTelemetry span), validates/normalizes the returned thesis, and persists a `ThesisRecord`. **If the agent call fails or times out, it falls back to `buildFallbackThesis` — a deterministic rule-based thesis** rather than erroring, so callers can distinguish `agentStatus: "AI_AGENT"` vs `"RULE_BASED_FALLBACK"` (see `agentFailure.reason`: `TIMEOUT`, `AGENT_UNREACHABLE`, `AGENT_CONFIG`, `AGENT_QUOTA`, `INVALID_AGENT_RESPONSE`, `AGENT_ERROR`).
-- `services/watchlist.ts` — implements the paper-trading lifecycle as one Prisma model (`TradeLifecycleEntry`) reused for three "kinds" (`WATCHLIST`, `PAPER_TRADE`, `LEDGER`), each row storing its full state as `payloadJson`. Status transitions: `Watching → Triggered Review/Pending Confirmation → Triggered (paper trade) → closed (Ledger)`, or `Watching → Invalidated/Expired (Ledger)`. Moving between kinds is a delete+create inside a `$transaction` (not an update), because kind changes. There's a `rollbackWatchlistMove` to undo a move if a downstream step fails.
+- `services/watchlist.ts` — implements the paper-trading lifecycle as one Prisma model (`TradeLifecycleEntry`) reused for three "kinds" (`WATCHLIST`, `PAPER_TRADE`, `LEDGER`), each row storing its full state as `payloadJson`. Status transitions: `Watching → Triggered Review/Pending Confirmation → Triggered (paper trade) → closed (Ledger)`, or `Watching → Invalidated/Expired (Ledger)`. Moving between kinds is a delete+create inside a `$transaction` (not an update), because kind changes.
 - `services/tradeGatekeeper.ts` + `services/tradeRiskConfig.ts` — the risk gate a `Watching` entry must pass to become `APPROVED` before it can open a paper trade: requires entry/stop/target prices, min confidence score, min risk/reward ratio, direction-consistent stop/target placement, volume confirmation, non-zero position size, and no active cooldown on that symbol after a recent loss. All thresholds are env-configurable (`ACCOUNT_BALANCE`, `RISK_PER_TRADE_PERCENT`, `MIN_RISK_REWARD_RATIO`, `MIN_CONFIDENCE_SCORE`, `COOLDOWN_HOURS_AFTER_LOSS`, etc. — see `tradeRiskConfig.ts` for full list and defaults).
 - `services/automation.ts` + `automationScheduler.ts` — polls `Watching` entries and open paper trades for price-trigger/exit conditions (env-gated by `AUTOMATION_ENABLED`, interval `AUTOMATION_INTERVAL_MS`); can notify via Discord webhook or Twilio SMS if configured. Manual run: `POST /api/automation/run`.
 - `services/startupScanner.ts` — on boot, optionally runs `analyzeSetup` for a configured ticker list (`STARTUP_SCAN_*` env vars) so the watchlist has data without manual scans.
@@ -88,3 +96,16 @@ Env vars live in a single root `.env` (all three apps `dotenv.config()` up to `.
 - Env vars are read once at module scope with numeric/string fallbacks (e.g. `tradeRiskConfig.ts`, `automation.ts`'s `getEntryMovePct`) rather than passed as parameters — follow that pattern for new configuration knobs, and document new vars in `.env.example` and `docs/deployment.md`.
 - Money/price parsing from free-text AI output (`parseFirstPriceLevel` in `watchlist.ts`, `parsePriceLevels` in `automation.ts`) is duplicated between those two files with the same regex approach — check both if you change how price levels are extracted from thesis strings.
 - Long/short direction is inferred by substring match on the `direction` string (`.includes("BEAR")`/`.includes("SHORT")`) in several places rather than a shared enum — this pattern repeats in `tradeGatekeeper.ts`, `watchlist.ts`, and `automation.ts`.
+
+## Don't do
+
+- Do not hand-edit files in `apps/api/src/generated/prisma/`.
+- Do not create individual component files under `apps/web/` without being prompted (everything currently lives in `app/page.tsx`).
+- Do not add Vitest or Jest dependencies; tests must use `node:test` and `node:assert/strict`.
+- Do not expose `INTERNAL_API_KEY` to the client/browser bundle.
+
+## Documentation
+
+- `docs/deployment.md` — Full environment variable reference and service setups.
+- `apps/api/prisma/schema.prisma` — Source of truth for database schema and relations.
+- `apps/api/src/services/tradeRiskConfig.ts` — Default thresholds for risk rules and paper-trading approval.

@@ -2,14 +2,70 @@
   "xsappname": "shadow-trader-ledger",
   "tenant-mode": "dedicated",
   "scopes": [
-    { "name": "$XSAPPNAME.LedgerWriter", "description": "Record theses and risk assessments" },
-    { "name": "$XSAPPNAME.Approver", "description": "Approve or reject theses" },
-    { "name": "$XSAPPNAME.Auditor", "description": "Read-only access to the ledger" }
+    {
+      "name": "$XSAPPNAME.LedgerWriter",
+      "description": "Record theses and risk assessments"
+    },
+    {
+      "name": "$XSAPPNAME.Approver",
+      "description": "Approve or reject theses"
+    },
+    {
+      "name": "$XSAPPNAME.Auditor",
+      "description": "Read-only access to the ledger"
+    }
   ],
-  "authorities": ["$XSAPPNAME.LedgerWriter"],
+  "authorities": [
+    "$XSAPPNAME.LedgerWriter"
+  ],
   "role-templates": [
-    { "name": "LedgerWriter", "scope-references": ["$XSAPPNAME.LedgerWriter"] },
-    { "name": "Approver", "scope-references": ["$XSAPPNAME.Approver"] },
-    { "name": "Auditor", "scope-references": ["$XSAPPNAME.Auditor"] }
-  ]
+    {
+      "name": "LedgerWriter",
+      "scope-references": [
+        "$XSAPPNAME.LedgerWriter"
+      ],
+      "description": "generated",
+      "attribute-references": []
+    },
+    {
+      "name": "Approver",
+      "scope-references": [
+        "$XSAPPNAME.Approver"
+      ],
+      "description": "generated",
+      "attribute-references": []
+    },
+    {
+      "name": "Auditor",
+      "scope-references": [
+        "$XSAPPNAME.Auditor"
+      ],
+      "description": "generated",
+      "attribute-references": []
+    }
+  ],
+  "role-collections": [
+    {
+      "name": "LedgerWriter",
+      "description": "Ledger Writer Access",
+      "role-template-references": [
+        "$XSAPPNAME.LedgerWriter"
+      ]
+    },
+    {
+      "name": "Approver",
+      "description": "Approver Access",
+      "role-template-references": [
+        "$XSAPPNAME.Approver"
+      ]
+    },
+    {
+      "name": "Auditor",
+      "description": "Auditor Access",
+      "role-template-references": [
+        "$XSAPPNAME.Auditor"
+      ]
+    }
+  ],
+  "attributes": []
 }

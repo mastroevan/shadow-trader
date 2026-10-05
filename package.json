@@ -3,9 +3,34 @@
     "proof:e2e": "node scripts/e2e_proof.mjs",
     "proof:e2e:btc": "node scripts/e2e_btc_proof.mjs"
   },
+  "devDependencies": {
+    "@sap/cds-dk": "^10"
+  },
   "dependencies": {
-    "@arizeai/openinference-semantic-conventions": "^2.3.0",
-    "@opentelemetry/exporter-otlp-http": "^0.26.0",
-    "@opentelemetry/semantic-conventions": "^1.41.1"
+    "@cap-js/hana": "^3",
+    "@sap/xssec": "^4"
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "kind": "hana"
+      },
+      "auth": {
+        "kind": "xsuaa"
+      }
+    },
+    "build": {
+      "tasks": [
+        {
+          "for": "hana",
+          "dest": "../gen/db"
+        },
+        {
+          "for": "nodejs",
+          "src": "srv",
+          "dest": "../gen/srv"
+        }
+      ]
+    }
   }
 }

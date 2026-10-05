@@ -347,14 +347,3 @@ function getYahooInterval(timeframe: Timeframe) {
 
   return "5m";
 }
-
-export function isValidFinnhubQuote(
-  quote: FinnhubQuote | null | undefined
-): quote is FinnhubQuote {
-  return Boolean(
-    quote &&
-      quote.price > 0 &&
-      quote.previousClose > 0 &&
-      quote.timestamp > 0
-  );
-}

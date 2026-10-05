@@ -27,28 +27,74 @@
   "cds": {
     "requires": {
       "db": {
-        "[development]": { "kind": "sqlite", "credentials": { "url": ":memory:" } },
-        "[hybrid]": { "kind": "hana" },
-        "[production]": { "kind": "hana" }
+        "[development]": {
+          "kind": "sqlite",
+          "credentials": {
+            "url": ":memory:"
+          }
+        },
+        "[hybrid]": {
+          "kind": "hana"
+        },
+        "[production]": {
+          "kind": "hana"
+        }
       },
       "auth": {
         "[development]": {
           "kind": "basic",
           "users": {
-            "agent":   { "password": "", "roles": ["LedgerWriter"] },
-            "evan":    { "password": "", "roles": ["Approver"] },
-            "auditor": { "password": "", "roles": ["Auditor"] }
+            "agent": {
+              "password": "",
+              "roles": [
+                "LedgerWriter"
+              ]
+            },
+            "evan": {
+              "password": "",
+              "roles": [
+                "Approver"
+              ]
+            },
+            "auditor": {
+              "password": "",
+              "roles": [
+                "Auditor"
+              ]
+            }
           }
         },
         "[hybrid]": {
           "kind": "basic",
           "users": {
-            "agent":   { "password": "", "roles": ["LedgerWriter"] },
-            "evan":    { "password": "", "roles": ["Approver"] },
-            "auditor": { "password": "", "roles": ["Auditor"] }
+            "agent": {
+              "password": "",
+              "roles": [
+                "LedgerWriter"
+              ]
+            },
+            "evan": {
+              "password": "",
+              "roles": [
+                "Approver"
+              ]
+            },
+            "auditor": {
+              "password": "",
+              "roles": [
+                "Auditor"
+              ]
+            }
           }
         },
-        "[production]": { "kind": "xsuaa" }
+        "[production]": {
+          "kind": "xsuaa"
+        }
+      },
+      "[production]": {
+        "auth": {
+          "kind": "xsuaa"
+        }
       }
     }
   }

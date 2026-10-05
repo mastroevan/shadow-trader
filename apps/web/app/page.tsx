@@ -4,7 +4,6 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'reac
 import { signOut } from 'next-auth/react';
 import {
   Bar,
-  BarChart,
   CartesianGrid,
   Cell,
   ComposedChart,
