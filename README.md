@@ -1,5 +1,7 @@
 # Shadow Trader
 
+[![CI](https://github.com/mastroevan/shadow-trader/actions/workflows/ci.yml/badge.svg)](https://github.com/mastroevan/shadow-trader/actions/workflows/ci.yml)
+
 Shadow Trader is a personal AI market research project: enter a ticker, and the agent gathers live quote data, recent headlines, technical signals, and observability metadata, then turns that evidence into a directional thesis and a watchlist action plan.
 
 Focus area: **Financial Services**
@@ -19,6 +21,7 @@ Arize/OpenTelemetry traces make each AI agent run inspectable and debuggable. Th
 - Handles watchlist eligibility from confidence: `75%+` auto-adds, `60-74%` requires manual review, and below `60%` is rejected from watchlist tracking.
 - Saves watchlist, paper-trade, ledger, and thesis records through the Node API.
 - Emits Arize-compatible trace metadata for agent observability.
+- Records every trade thesis and risk assessment in an SAP CAP ledger on BTP, and opens no paper trade until a human approval is recorded there (see [Human approval ledger](#human-approval-ledger-sap-btp)).
 
 ## Architecture
 
@@ -32,7 +35,56 @@ flowchart LR
   Agent --> Arize["Arize traces"]
   API --> Postgres["PostgreSQL via Prisma"]
   UI --> Postgres
+  API -- "record thesis, isApproved?" --> Ledger["SAP CAP ledger (BTP, HANA Cloud, XSUAA)"]
+  Human["Approver"] -- decide --> Ledger
+  Assistant["Claude Code (MCP)"] -- "read-only, Auditor" --> Ledger
 ```
+
+## Human approval ledger (SAP BTP)
+
+An AI agent proposes trades; a person decides. Every thesis and risk assessment is written
+to an append-only ledger, tied to whoever wrote it, and no paper trade opens until a human
+has approved it there.
+
+The ledger is a SAP CAP (Node.js) service in [`apps/ledger`](apps/ledger): one service for the
+app (`LedgerService`), one read-only MCP service for assistants (`AuditService`), three
+tables and three roles.
+
+| Role | Held by | Can do |
+| --- | --- | --- |
+| `LedgerWriter` | The Shadow Trader API, acting for the agent (XSUAA client credentials) | Record theses and risk assessments, read, call `isApproved` |
+| `Approver` | A human (user token) | Read, call `decide` |
+| `Auditor` | Claude Code over MCP, reviewers | Read through `AuditService` only |
+
+How the gate works: when someone opens a paper trade, the API records the thesis in the
+ledger and refuses (`409 AWAITING_LEDGER_APPROVAL`) until an Approver has called `decide`.
+If the ledger can't be reached, it refuses with `503`. The agent's credentials only carry
+`LedgerWriter`, so it can never approve, and a test asserts the 403.
+
+| Piece | Where it runs |
+| --- | --- |
+| `LedgerService` (record, `decide`, `isApproved`) | Deployed on BTP Cloud Foundry, HANA Cloud HDI container, XSUAA |
+| `AuditService` over MCP (`/mcp/audit`) | Local and hybrid; next deploy brings it to BTP |
+| Approvals | `decide` via [`LedgerService.http`](apps/ledger/test/http/LedgerService.http) or curl; dashboard buttons are not built yet |
+| Tests | 66 Jest tests (`cds.test`, in-memory SQLite) in the `Ledger` CI job |
+| Gate in the hosted app (Render) | Not yet: `LEDGER_*` variables aren't set there, so it runs without the gate |
+
+Run it locally (Node 24.9+):
+
+```bash
+cd apps/ledger
+nvm use && npm install
+npm run watch                  # http://localhost:4004, SQLite, mock users agent / evan / auditor
+npm test                       # Jest
+cds watch --profile hybrid     # same, against HANA Cloud (after `cds bind` to your HDI container)
+```
+
+Set `LEDGER_URL=http://localhost:4004` and `LEDGER_USERNAME=agent` in `.env` and restart the
+API to turn the gate on; without `LEDGER_URL` it is skipped.
+
+More detail: [ledger readme](apps/ledger/readme.md) (rules, roles, deploy) ·
+[MCP tool-description eval](apps/ledger/test/evals/mcp-questions.md) ·
+[build log](apps/ledger/BUILD_LOG.md)
 
 ## Demo Flow
 
