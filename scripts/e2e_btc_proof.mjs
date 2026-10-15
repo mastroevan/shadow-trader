@@ -63,6 +63,10 @@ function buildWatchlistPayload(result) {
       : [],
     riskExplanation: thesis.riskExplanation,
     traceId: result.traceId ?? thesis.traceId,
+    volumeConfirmation: result.riskFields?.volumeConfirmation ?? true,
+    trendStrength: result.riskFields?.trendStrength ?? 0.8,
+    marketCondition: result.riskFields?.marketCondition ?? "Bullish momentum",
+    triggerType: result.riskFields?.triggerType ?? "BREAKOUT",
   };
 }
 

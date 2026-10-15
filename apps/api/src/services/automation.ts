@@ -119,13 +119,23 @@ export async function runTriggerAutomation(): Promise<AutomationRunResult> {
       const exit = evaluateExitTrigger(currentTrade, price);
 
       if (currentTrade.stopLossHit) {
-        result.actions.push({
-          type: "STOP_LOSS_HIT",
-          symbol: trade.symbol,
-          entryId: trade.id,
-          price,
-          reason: exit.reason || `price ${formatPrice(price)} reached stop ${formatPrice(currentTrade.stopLoss)}`,
+        const stopReason =
+          exit.reason ||
+          `price ${formatPrice(price)} reached stop ${formatPrice(currentTrade.stopLoss)}`;
+        const closed = await closeTradeEntry(trade.id, "Loss", {
+          exitPrice: price,
+          notes: `Automation closed this paper trade at stop loss: ${stopReason}`,
         });
+
+        if (closed) {
+          result.actions.push({
+            type: "STOP_LOSS_HIT",
+            symbol: trade.symbol,
+            entryId: trade.id,
+            price,
+            reason: stopReason,
+          });
+        }
         continue;
       }
 

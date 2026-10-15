@@ -9,7 +9,6 @@ import {
   evaluateTradeGate,
   type GateStatus,
 } from "./tradeGatekeeper";
-import { checkLedgerApproval, type LedgerDecision } from "./ledgerGate";
 
 export type WatchlistEntry = {
   id: string;
@@ -48,7 +47,6 @@ export type WatchlistEntry = {
   riskPerShare?: number | null;
   gateStatus?: GateStatus;
   gateReasons?: string[];
-  ledgerThesisId?: string;
   triggerPrice?: number | null;
   triggeredAt?: string;
   triggerReason?: string;
@@ -110,7 +108,7 @@ const KIND_WATCHLIST = "WATCHLIST";
 const KIND_PAPER_TRADE = "PAPER_TRADE";
 const KIND_LEDGER = "LEDGER";
 
-export type LedgerBlocked = { blocked: Exclude<LedgerDecision, { status: "APPROVED" | "DISABLED" }> };
+export type GateRejection = { rejected: true; reasons: string[] };
 
 export async function listWatchlistEntries(): Promise<WatchlistEntry[]> {
   const db = await getDb();
@@ -164,15 +162,47 @@ export async function upsertWatchlistEntry(
   const db = await getDb();
   const now = new Date().toISOString();
   const normalizedSymbol = input.symbol.toUpperCase();
-  const existing = await db.tradeLifecycleEntry.findFirst({
-    where: {
-      kind: KIND_WATCHLIST,
-      symbol: normalizedSymbol,
-      status: "Watching",
-    },
-  });
+  const [existing, ledgerEntries] = await Promise.all([
+    db.tradeLifecycleEntry.findFirst({
+      where: {
+        kind: KIND_WATCHLIST,
+        symbol: normalizedSymbol,
+        status: "Watching",
+      },
+    }),
+    listLedgerEntries(),
+  ]);
   const created = !existing;
   const existingEntry = existing ? normalizeStoredEntry(parsePayload<WatchlistEntry>(existing.payloadJson)) : null;
+
+  const entryPrice =
+    input.entryPrice ??
+    existingEntry?.entryPrice ??
+    parseFirstPriceLevel(input.entryZone) ??
+    parseFirstPriceLevel(input.entryTrigger) ??
+    input.startPrice ??
+    null;
+  const stopLoss =
+    input.stopLoss ??
+    existingEntry?.stopLoss ??
+    parseFirstPriceLevel(input.stopLossTrigger);
+  const takeProfit =
+    input.takeProfit ??
+    existingEntry?.takeProfit ??
+    parseFirstPriceLevel(input.takeProfitTrigger);
+
+  const gate = evaluateTradeGate({
+    symbol: normalizedSymbol,
+    direction: input.direction,
+    entryPrice,
+    stopLoss,
+    takeProfit,
+    confidenceScore: input.confidenceScore,
+    volumeConfirmation: input.volumeConfirmation,
+    trendStrength: input.trendStrength,
+    closedTrades: ledgerEntries,
+  });
+
   const savedEntry: WatchlistEntry = existingEntry
     ? {
         ...existingEntry,
@@ -180,6 +210,15 @@ export async function upsertWatchlistEntry(
         symbol: existingEntry.symbol,
         id: existingEntry.id,
         traceId: existingEntry.traceId ?? input.traceId,
+        entryPrice,
+        stopLoss,
+        takeProfit,
+        riskRewardRatio: gate.calculated.riskRewardRatio,
+        positionSize: gate.calculated.positionSize,
+        maxDollarRisk: gate.calculated.maxDollarRisk,
+        riskPerShare: gate.calculated.riskPerShare,
+        gateStatus: gate.approved ? "APPROVED" : "REJECTED",
+        gateReasons: gate.reasons,
         status: "Watching",
         createdAt: existingEntry.createdAt,
         updatedAt: now,
@@ -189,6 +228,15 @@ export async function upsertWatchlistEntry(
         symbol: normalizedSymbol,
         status: "Watching",
         id: randomUUID(),
+        entryPrice,
+        stopLoss,
+        takeProfit,
+        riskRewardRatio: gate.calculated.riskRewardRatio,
+        positionSize: gate.calculated.positionSize,
+        maxDollarRisk: gate.calculated.maxDollarRisk,
+        riskPerShare: gate.calculated.riskPerShare,
+        gateStatus: gate.approved ? "APPROVED" : "REJECTED",
+        gateReasons: gate.reasons,
         createdAt: now,
         updatedAt: now,
       };
@@ -205,7 +253,7 @@ export async function upsertWatchlistEntry(
 export async function moveWatchlistEntry(
   id: string,
   status: WatchlistStatus
-): Promise<{ entry: TradeEntry | LedgerEntry; previousEntry: WatchlistEntry } | LedgerBlocked | null> {
+): Promise<{ entry: TradeEntry | LedgerEntry; previousEntry: WatchlistEntry } | GateRejection | null> {
   if (status === "Watching" || status === "Triggered Review" || status === "Pending Confirmation") return null;
 
   const db = await getDb();
@@ -217,11 +265,45 @@ export async function moveWatchlistEntry(
 
   let previousEntry = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
   if (status === "Triggered") {
-    if (previousEntry.gateStatus !== "APPROVED") return null;
-    const approval = await requireLedgerApproval(previousEntry);
-    if ("blocked" in approval) return approval;
-    previousEntry = approval.entry;
+    if (!previousEntry.gateStatus) {
+      const ledgerEntries = await listLedgerEntries();
+      const entryPrice =
+        previousEntry.entryPrice ??
+        previousEntry.startPrice ??
+        parseFirstPriceLevel(previousEntry.entryZone) ??
+        parseFirstPriceLevel(previousEntry.entryTrigger);
+      const stopLoss = previousEntry.stopLoss ?? parseFirstPriceLevel(previousEntry.stopLossTrigger);
+      const takeProfit = previousEntry.takeProfit ?? parseFirstPriceLevel(previousEntry.takeProfitTrigger);
+      const gate = evaluateTradeGate({
+        symbol: previousEntry.symbol,
+        direction: previousEntry.direction,
+        entryPrice,
+        stopLoss,
+        takeProfit,
+        confidenceScore: previousEntry.confidenceScore,
+        volumeConfirmation: previousEntry.volumeConfirmation,
+        trendStrength: previousEntry.trendStrength,
+        closedTrades: ledgerEntries,
+      });
+      previousEntry = {
+        ...previousEntry,
+        entryPrice,
+        stopLoss,
+        takeProfit,
+        riskRewardRatio: gate.calculated.riskRewardRatio,
+        positionSize: gate.calculated.positionSize,
+        maxDollarRisk: gate.calculated.maxDollarRisk,
+        riskPerShare: gate.calculated.riskPerShare,
+        gateStatus: gate.approved ? "APPROVED" : "REJECTED",
+        gateReasons: gate.reasons,
+      };
+    }
+
+    if (previousEntry.gateStatus !== "APPROVED") {
+      return { rejected: true, reasons: previousEntry.gateReasons ?? ["Risk gate was not approved."] };
+    }
   }
+
   const movedEntry = status === "Triggered"
     ? buildTradeEntry(previousEntry, {})
     : buildLedgerEntry(previousEntry, status);
@@ -287,7 +369,7 @@ export async function openPaperTradeEntry(
     slippage?: number | null;
     notes?: string;
   }
-): Promise<{ entry: TradeEntry; previousEntry: WatchlistEntry } | LedgerBlocked | null> {
+): Promise<{ entry: TradeEntry; previousEntry: WatchlistEntry } | GateRejection | null> {
   const db = await getDb();
   const row = await db.tradeLifecycleEntry.findUnique({
     where: { id },
@@ -295,11 +377,54 @@ export async function openPaperTradeEntry(
 
   if (!row || row.kind !== KIND_WATCHLIST) return null;
 
-  const storedEntry = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
-  if (storedEntry.gateStatus !== "APPROVED") return null;
-  const approval = await requireLedgerApproval(storedEntry);
-  if ("blocked" in approval) return approval;
-  const previousEntry = approval.entry;
+  let storedEntry = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
+  if (storedEntry.gateStatus !== "APPROVED") {
+    const ledgerEntries = await listLedgerEntries();
+    const entryPrice =
+      input.entryPrice ??
+      storedEntry.entryPrice ??
+      storedEntry.startPrice ??
+      parseFirstPriceLevel(storedEntry.entryZone) ??
+      parseFirstPriceLevel(storedEntry.entryTrigger);
+    const stopLoss =
+      input.stopLoss ??
+      storedEntry.stopLoss ??
+      parseFirstPriceLevel(storedEntry.stopLossTrigger);
+    const takeProfit =
+      input.takeProfit ??
+      storedEntry.takeProfit ??
+      parseFirstPriceLevel(storedEntry.takeProfitTrigger);
+    const gate = evaluateTradeGate({
+      symbol: storedEntry.symbol,
+      direction: storedEntry.direction,
+      entryPrice,
+      stopLoss,
+      takeProfit,
+      confidenceScore: storedEntry.confidenceScore,
+      volumeConfirmation: storedEntry.volumeConfirmation,
+      trendStrength: storedEntry.trendStrength,
+      closedTrades: ledgerEntries,
+    });
+
+    if (!gate.approved) {
+      return { rejected: true, reasons: gate.reasons };
+    }
+
+    storedEntry = {
+      ...storedEntry,
+      entryPrice,
+      stopLoss,
+      takeProfit,
+      riskRewardRatio: gate.calculated.riskRewardRatio,
+      positionSize: gate.calculated.positionSize,
+      maxDollarRisk: gate.calculated.maxDollarRisk,
+      riskPerShare: gate.calculated.riskPerShare,
+      gateStatus: "APPROVED",
+      gateReasons: [],
+    };
+  }
+
+  const previousEntry = storedEntry;
   const trade = buildTradeEntry(previousEntry, input);
 
   await db.$transaction([
@@ -312,31 +437,6 @@ export async function openPaperTradeEntry(
   ]);
 
   return { entry: trade, previousEntry };
-}
-
-// Second, human gate: the entry must also be approved in the SAP ledger. Saves
-// the ledger thesis id on the watchlist row the first time one is recorded, so
-// later attempts check the same thesis instead of recording a new one.
-async function requireLedgerApproval(
-  entry: WatchlistEntry
-): Promise<{ entry: WatchlistEntry } | LedgerBlocked> {
-  const decision = await checkLedgerApproval(entry);
-  const ledgerThesisId = "ledgerThesisId" in decision ? decision.ledgerThesisId : undefined;
-  const nextEntry = ledgerThesisId && ledgerThesisId !== entry.ledgerThesisId
-    ? { ...entry, ledgerThesisId }
-    : entry;
-
-  if (nextEntry !== entry) {
-    const db = await getDb();
-    await db.tradeLifecycleEntry.update({
-      where: { id: entry.id },
-      data: lifecycleRowUpdate(KIND_WATCHLIST, nextEntry),
-    });
-  }
-
-  if (decision.status === "APPROVED" || decision.status === "DISABLED") return { entry: nextEntry };
-
-  return { blocked: decision };
 }
 
 export async function markWatchlistEntryPendingConfirmation(

@@ -130,6 +130,12 @@ type AnalyzeResponse = {
   thesisRecord?: ThesisRecord;
   thesisRecordId?: string;
   signalDetails?: SignalDetail[];
+  riskFields?: {
+    volumeConfirmation?: boolean;
+    trendStrength?: number | null;
+    marketCondition?: string;
+    triggerType?: string;
+  };
   quote?: Quote;
   candles?: Candle[];
   news?: NewsItem[];
@@ -685,7 +691,7 @@ export default function Home() {
 
     const analysisSignals = analysis.signalDetails ?? [];
     const plan = getTradePlan(analysisThesis, getFeaturedSignals(analysisSignals));
-    const riskFields = deriveTradeRiskFields(analysisThesis, analysisSignals);
+    const riskFields = analysis.riskFields ?? deriveTradeRiskFields(analysisThesis, analysisSignals);
     const analysisSymbol =
       analysisThesis.symbol ??
       analysis.quote?.symbol ??

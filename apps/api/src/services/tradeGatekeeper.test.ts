@@ -20,6 +20,27 @@ test("calculatePositionSize sizes from max dollar risk", () => {
     riskPerShare: 5,
   });
   assert.equal(calculatePositionSize(10_000, 1, 100, 100).positionSize, 0);
+
+  // Crypto fractional sizing
+  const cryptoSize = calculatePositionSize(10_000, 1, 65_000, 64_000, { isCrypto: true });
+  assert.equal(cryptoSize.positionSize, 0.1);
+  assert.equal(cryptoSize.maxDollarRisk, 100);
+  assert.equal(cryptoSize.riskPerShare, 1000);
+});
+
+test("evaluateTradeGate approves crypto setups with fractional size", () => {
+  const result = evaluateTradeGate({
+    symbol: "BTC/USD",
+    entryPrice: 65_000,
+    stopLoss: 64_000,
+    takeProfit: 68_000,
+    confidenceScore: 0.85,
+    volumeConfirmation: true,
+  });
+
+  assert.equal(result.approved, true);
+  assert.equal(result.reasons.length, 0);
+  assert.equal(result.calculated.positionSize, 0.1);
 });
 
 test("evaluateTradeGate approves only validated candidates", () => {

@@ -12,6 +12,7 @@ export type ClosedTradeForCooldown = {
 
 export type TradeGateCandidate = {
   symbol: string;
+  assetClass?: string | null;
   direction?: string | null;
   entryPrice?: number | null;
   stopLoss?: number | null;
@@ -56,17 +57,33 @@ export function calculatePositionSize(
   accountBalance: number,
   riskPercent: number,
   entryPrice?: number | null,
-  stopLoss?: number | null
+  stopLoss?: number | null,
+  options?: { isCrypto?: boolean; precision?: number }
 ) {
-  const maxDollarRisk = accountBalance * riskPercent / 100;
+  const maxDollarRisk = (accountBalance * riskPercent) / 100;
   const riskPerShare =
     isPositiveNumber(entryPrice) && isPositiveNumber(stopLoss)
       ? Math.abs(entryPrice - stopLoss)
       : 0;
-  const positionSize =
-    Number.isFinite(maxDollarRisk) && maxDollarRisk > 0 && Number.isFinite(riskPerShare) && riskPerShare > 0
-      ? Math.floor(maxDollarRisk / riskPerShare)
-      : 0;
+
+  let positionSize = 0;
+  if (
+    Number.isFinite(maxDollarRisk) &&
+    maxDollarRisk > 0 &&
+    Number.isFinite(riskPerShare) &&
+    riskPerShare > 0
+  ) {
+    const rawSize = maxDollarRisk / riskPerShare;
+    if (options?.isCrypto) {
+      const precision = options.precision ?? 4;
+      positionSize = Number(rawSize.toFixed(precision));
+      if (positionSize <= 0 && rawSize > 0) {
+        positionSize = Number(rawSize.toFixed(6));
+      }
+    } else {
+      positionSize = Math.floor(rawSize);
+    }
+  }
 
   return {
     positionSize,
@@ -99,12 +116,18 @@ export function isTickerOnCooldown(
 }
 
 export function evaluateTradeGate(candidate: TradeGateCandidate): TradeGateEvaluation {
+  const isCrypto =
+    candidate.assetClass === "crypto" ||
+    candidate.symbol.includes("/") ||
+    candidate.symbol.includes("-") ||
+    ["BTC", "ETH", "SOL"].includes(candidate.symbol.toUpperCase());
   const riskRewardRatio = calculateRiskReward(candidate.entryPrice, candidate.stopLoss, candidate.takeProfit);
   const position = calculatePositionSize(
     tradeRiskConfig.accountBalance,
     tradeRiskConfig.riskPerTradePercent,
     candidate.entryPrice,
-    candidate.stopLoss
+    candidate.stopLoss,
+    { isCrypto }
   );
   const reasons: string[] = [];
 

@@ -36,8 +36,8 @@ async function ensureSchema(client: PrismaClient) {
       "status" TEXT NOT NULL,
       "ledgerId" TEXT,
       "payloadJson" TEXT NOT NULL,
-      "createdAt" DATETIME NOT NULL,
-      "updatedAt" DATETIME NOT NULL
+      "createdAt" TIMESTAMP(3) NOT NULL,
+      "updatedAt" TIMESTAMP(3) NOT NULL
     )
   `);
   await client.$executeRawUnsafe(`
@@ -63,8 +63,8 @@ async function ensureSchema(client: PrismaClient) {
       "symbol" TEXT NOT NULL,
       "status" TEXT NOT NULL,
       "payloadJson" TEXT NOT NULL,
-      "generatedAt" DATETIME NOT NULL,
-      "updatedAt" DATETIME NOT NULL
+      "generatedAt" TIMESTAMP(3) NOT NULL,
+      "updatedAt" TIMESTAMP(3) NOT NULL
     )
   `);
   await client.$executeRawUnsafe(`

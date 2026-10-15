@@ -22,6 +22,13 @@ export type SetupAnalysisInput = {
   timeframe?: unknown;
 };
 
+export type DerivedTradeRiskFields = {
+  volumeConfirmation: boolean;
+  trendStrength: number | null;
+  marketCondition: string;
+  triggerType?: string;
+};
+
 export type SetupAnalysisResult = {
   thesis: Record<string, unknown>;
   traceId: string;
@@ -36,6 +43,7 @@ export type SetupAnalysisResult = {
   candles: MarketSnapshot["candles"];
   signals: string[];
   signalDetails: ReturnType<typeof generateSignals>;
+  riskFields: DerivedTradeRiskFields;
   news: MarketNewsItem[];
   technicals: TechnicalIndicators | null;
   meta: {
@@ -155,6 +163,8 @@ export async function analyzeSetup(input: SetupAnalysisInput): Promise<SetupAnal
     timeHorizon: getThesisString(thesis, "timeHorizon", "1W"),
   });
 
+  const riskFields = deriveTradeRiskFields(thesis, signalDetails);
+
   return {
     thesis,
     traceId,
@@ -166,6 +176,7 @@ export async function analyzeSetup(input: SetupAnalysisInput): Promise<SetupAnal
     candles,
     signals,
     signalDetails,
+    riskFields,
     news,
     technicals,
     meta: {
@@ -176,6 +187,49 @@ export async function analyzeSetup(input: SetupAnalysisInput): Promise<SetupAnal
       quoteSource: quote.source,
       candleCount: candles.length,
     },
+  };
+}
+
+export function deriveTradeRiskFields(
+  thesis: Record<string, unknown>,
+  signals: ReturnType<typeof generateSignals>
+): DerivedTradeRiskFields {
+  const volumeSignal = signals.find((signal) => signal.type === "VOLUME_SPIKE");
+  const volumeRatio = typeof volumeSignal?.value === "number" ? volumeSignal.value : null;
+  const trendSignals = signals
+    .filter((signal) =>
+      ["INTRADAY_MOMENTUM", "EMA_ALIGNMENT", "VWAP_POSITION"].includes(signal.type ?? "")
+    )
+    .map((signal) =>
+      typeof signal.value === "number" ? Math.min(Math.abs(signal.value) / 2, 1) : 0
+    );
+  const trendStrength =
+    trendSignals.length > 0
+      ? Number(
+          (
+            trendSignals.reduce((sum, value) => sum + value, 0) / trendSignals.length
+          ).toFixed(2)
+        )
+      : null;
+
+  const momentum = signals.find((signal) => signal.type === "INTRADAY_MOMENTUM");
+  const momentumValue = typeof momentum?.value === "number" ? momentum.value : 0;
+  const marketCondition =
+    momentumValue > 0.75
+      ? "Bullish momentum"
+      : momentumValue < -0.75
+        ? "Bearish momentum"
+        : "Range-bound";
+
+  const setup = thesis.setup as Record<string, unknown> | undefined;
+  const setupType = typeof setup?.setupType === "string" ? setup.setupType : undefined;
+  const triggerType = setupType && setupType !== "NO_TRADE" ? setupType : undefined;
+
+  return {
+    volumeConfirmation: volumeRatio !== null ? volumeRatio >= 1.2 : false,
+    trendStrength,
+    marketCondition,
+    triggerType,
   };
 }
 

@@ -1,4 +1,4 @@
-import { Router, type Response } from "express";
+import { Router } from "express";
 import {
   clearLedgerEntries,
   closeTradeEntry,
@@ -19,7 +19,6 @@ import {
   parseNullableNumber,
   isWatchlistStatus,
 } from "../services/watchlistFields";
-import type { LedgerBlocked } from "../services/watchlist";
 
 const router = Router();
 
@@ -118,15 +117,18 @@ router.patch("/watchlist/:id/status", async (req, res) => {
   }
   const move = await moveWatchlistEntry(req.params.id, nextStatus);
 
-  if (move && "blocked" in move) return sendLedgerBlocked(res, move);
+  if (move && "rejected" in move) {
+    return res.status(422).json({
+      error: "RISK_GATE_REJECTED",
+      message: "This setup did not pass the risk gate.",
+      reasons: move.reasons,
+    });
+  }
 
   if (!move) {
     return res.status(404).json({
       error: "WATCHLIST_ENTRY_NOT_FOUND",
-      message:
-        nextStatus === "Triggered"
-          ? "No approved watchlist entry was found for that id. Entries must pass the risk gate before they can be triggered."
-          : "No watchlist entry was found for that id.",
+      message: "No watchlist entry was found for that id.",
     });
   }
 
@@ -144,12 +146,18 @@ router.post("/watchlist/:id/paper-trade", async (req, res) => {
     notes: typeof req.body.notes === "string" ? req.body.notes : undefined,
   });
 
-  if (move && "blocked" in move) return sendLedgerBlocked(res, move);
+  if (move && "rejected" in move) {
+    return res.status(422).json({
+      error: "RISK_GATE_REJECTED",
+      message: "This setup did not pass the risk gate.",
+      reasons: move.reasons,
+    });
+  }
 
   if (!move) {
     return res.status(404).json({
       error: "WATCHLIST_ENTRY_NOT_FOUND",
-      message: "No approved watchlist entry was found for that id.",
+      message: "No watchlist entry was found for that id.",
     });
   }
 
@@ -243,22 +251,5 @@ router.delete("/trust-ledger", async (_req, res) => {
 
   return res.json({ deletedCount });
 });
-
-function sendLedgerBlocked(res: Response, { blocked }: LedgerBlocked) {
-  if (blocked.status === "UNAVAILABLE") {
-    return res.status(503).json({
-      error: "LEDGER_UNAVAILABLE",
-      message: "The approval ledger could not be reached, so the trade was not opened.",
-      ledgerThesisId: blocked.ledgerThesisId ?? null,
-      detail: blocked.message,
-    });
-  }
-
-  return res.status(409).json({
-    error: "AWAITING_LEDGER_APPROVAL",
-    message: "This setup passed the risk gate but has no human approval in the ledger yet.",
-    ledgerThesisId: blocked.ledgerThesisId,
-  });
-}
 
 export default router;

@@ -119,6 +119,10 @@ export async function runStartupScan(): Promise<StartupScanResult> {
           url: item.url,
         })),
         traceId: analysis.traceId,
+        volumeConfirmation: analysis.riskFields.volumeConfirmation,
+        trendStrength: analysis.riskFields.trendStrength,
+        marketCondition: analysis.riskFields.marketCondition,
+        triggerType: analysis.riskFields.triggerType,
         timeHorizon: getThesisString(analysis.thesis, "timeHorizon", "1W"),
         status: "Watching",
       });
