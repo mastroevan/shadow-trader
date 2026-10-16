@@ -6,3 +6,5 @@ python-dotenv
 requests
 uvicorn[standard]
 yfinance
+pytest
+httpx

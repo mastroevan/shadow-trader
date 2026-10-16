@@ -89,8 +89,8 @@ Required:
 - `DATABASE_URL`
 - `FINNHUB_API_KEY`
 - `OPENAI_API_KEY`
-- `OPENAI_MODEL_FAST` defaults to `gpt-5.4-mini`
-- `OPENAI_MODEL_DEEP` defaults to `gpt-5.5`
+- `OPENAI_MODEL_FAST` defaults to `gpt-4o-mini`
+- `OPENAI_MODEL_DEEP` defaults to `gpt-4o`
 - `INTERNAL_API_KEY`
 - `AUTH_SECRET`
 - `AUTH_URL`

@@ -2,6 +2,10 @@
   "private": true,
   "scripts": {
     "proof:e2e": "node scripts/e2e_proof.mjs",
-    "proof:e2e:btc": "node scripts/e2e_btc_proof.mjs"
+    "proof:e2e:btc": "node scripts/e2e_btc_proof.mjs",
+    "test:api": "npm run test --prefix apps/api",
+    "test:web": "npm run test --prefix apps/web",
+    "test:agent": "pytest --rootdir=apps/agent -o cache_dir=/tmp/.pytest_cache apps/agent/tests/",
+    "test": "npm run test:api && npm run test:web && npm run test:agent"
   }
 }

@@ -120,9 +120,9 @@ def get_mode_and_model(requested_mode: Optional[str] = None) -> tuple[str, str]:
         )
 
     if mode == "deep":
-        selected_model = os.getenv("OPENAI_MODEL_DEEP", "gpt-5.5")
+        selected_model = os.getenv("OPENAI_MODEL_DEEP", "gpt-4o")
     else:
-        selected_model = os.getenv("OPENAI_MODEL_FAST", "gpt-5.4-mini")
+        selected_model = os.getenv("OPENAI_MODEL_FAST", "gpt-4o-mini")
 
     return mode, selected_model
 

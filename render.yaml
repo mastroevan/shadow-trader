@@ -10,9 +10,9 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL_FAST
-        value: gpt-5.4-mini
+        value: gpt-4o-mini
       - key: OPENAI_MODEL_DEEP
-        value: gpt-5.5
+        value: gpt-4o
       - key: SHADOW_TRADER_MODE
         value: fast
       - key: FINNHUB_API_KEY

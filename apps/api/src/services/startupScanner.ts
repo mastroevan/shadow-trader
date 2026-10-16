@@ -140,11 +140,11 @@ export async function runStartupScan(): Promise<StartupScanResult> {
 }
 
 function isStartupScanEnabled() {
-  const configured = String(process.env.STARTUP_SCAN_ENABLED ?? "true")
+  const configured = String(process.env.STARTUP_SCAN_ENABLED ?? "false")
     .trim()
     .toLowerCase();
 
-  return configured !== "false" && configured !== "0" && configured !== "off";
+  return configured === "true" || configured === "1" || configured === "on";
 }
 
 function getStartupScanCandidates(): StartupScanCandidate[] {
