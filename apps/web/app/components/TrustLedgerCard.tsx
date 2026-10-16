@@ -1,9 +1,18 @@
 import React from 'react';
-import { ShieldCheck, Trash2 } from 'lucide-react';
+import { LineChart as ChartIcon, ShieldCheck, Trash2, TrendingUp } from 'lucide-react';
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { CARD_CLASS, INNER_CARD_CLASS } from '../constants';
 import { LedgerEntry } from '../types';
 import { formatCurrency, formatDate, formatNumber } from '../utils/formatters';
-import { formatCountMap, getTrustLedgerInsights } from '../utils/tradeLogic';
+import { formatCountMap, formatHoldingDuration, getTrustLedgerInsights } from '../utils/tradeLogic';
 import { DisclosureBlock } from './ui/Blocks';
 import { EmptyState } from './ui/EmptyState';
 import { MiniStat } from './ui/MiniStat';
@@ -64,6 +73,95 @@ export function TrustLedgerCard({
         <MiniStat label="Losses No Volume" value={String(insights.lossesMissingVolume)} />
         <MiniStat label="Losses R/R < 2" value={String(insights.lossesLowRiskReward)} />
       </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <MiniStat label="Sharpe Ratio" value={String(insights.sharpeRatio)} />
+        <MiniStat label="Sortino Ratio" value={String(insights.sortinoRatio)} />
+        <MiniStat label="Profit Factor" value={`${insights.profitFactor.toFixed(2)}x`} />
+        <MiniStat
+          label="Max Drawdown"
+          value={`${formatCurrency(insights.maxDrawdown)} (${insights.maxDrawdownPercent.toFixed(1)}%)`}
+        />
+        <MiniStat
+          label="Avg Win Hold"
+          value={formatHoldingDuration(insights.averageWinHoldingTimeMinutes)}
+        />
+        <MiniStat
+          label="Avg Loss Hold"
+          value={formatHoldingDuration(insights.averageLossHoldingTimeMinutes)}
+        />
+      </div>
+
+      {insights.cumulativePnlCurve.length > 0 && (
+        <div className="mt-6 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <h4 className="text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                Cumulative P&L Curve
+              </h4>
+            </div>
+            <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+              {insights.cumulativePnlCurve.length} closed trades
+            </span>
+          </div>
+
+          <div className="h-56 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={insights.cumulativePnlCurve} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                <XAxis
+                  dataKey="tradeNumber"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(val) => `#${val}`}
+                />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(val) => `$${val}`}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const data = payload[0].payload;
+                      return (
+                        <div className="rounded-lg border border-zinc-200 bg-white/95 p-2.5 text-xs shadow-lg backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95">
+                          <p className="font-bold text-zinc-900 dark:text-zinc-100">
+                            Trade #{data.tradeNumber}: {data.symbol} ({data.date})
+                          </p>
+                          <p className={`mt-1 font-semibold ${data.tradePnl >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                            Trade P&L: {formatCurrency(data.tradePnl)}
+                          </p>
+                          <p className="font-semibold text-zinc-700 dark:text-zinc-300">
+                            Cumulative: {formatCurrency(data.cumulativePnl)}
+                          </p>
+                          <p className="text-zinc-500 dark:text-zinc-400">
+                            Drawdown: {formatCurrency(data.drawdown)} ({data.drawdownPercent}%)
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="cumulativePnl"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#pnlGrad)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <DisclosureBlock label="Losses by Trigger Type" value={formatCountMap(insights.lossCountByTriggerType)} />

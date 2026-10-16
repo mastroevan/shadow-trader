@@ -236,6 +236,13 @@ describe('tradeLogic', () => {
       assert.equal(insights.lossesLowRiskReward, 1);
       assert.equal(insights.lossCountByTriggerType['BREAKOUT'], 1);
       assert.equal(insights.lossCountByConfidenceBucket['60-70%'], 1);
+      assert.equal(insights.profitFactor, 2.5);
+      assert.equal(insights.cumulativePnlCurve.length, 2);
+      assert.equal(insights.cumulativePnlCurve[0].cumulativePnl, 500);
+      assert.equal(insights.cumulativePnlCurve[1].cumulativePnl, 300);
+      assert.equal(insights.maxDrawdown, 200);
+      assert.ok(insights.sharpeRatio !== undefined);
+      assert.ok(insights.sortinoRatio !== undefined);
     });
   });
 });

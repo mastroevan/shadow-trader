@@ -1,6 +1,7 @@
 import { AUTO_WATCHLIST_CONFIDENCE, MANUAL_WATCHLIST_CONFIDENCE } from '../constants';
 import {
   AnalyzeResponse,
+  EquityPoint,
   LedgerEntry,
   SavedWatchlistEntry,
   SignalDetail,
@@ -10,7 +11,7 @@ import {
   WatchlistDecision,
   WatchlistStatus,
 } from '../types';
-import { formatAnalysisTimeframe, titleCase } from './formatters';
+import { formatAnalysisTimeframe, formatShortDate, titleCase } from './formatters';
 
 export function getConfidencePct(thesis?: TradingThesis): number | null {
   return typeof thesis?.confidenceScore === 'number' ? Math.round(thesis.confidenceScore * 100) : null;
@@ -224,6 +225,34 @@ export function formatCountMap(counts: Record<string, number>): string {
   return entries.map(([key, value]) => `${key}: ${value}`).join('\n');
 }
 
+export function parseHoldingMinutes(entry: LedgerEntry): number | null {
+  if (entry.entryDate && (entry.closedAt || entry.exitDate)) {
+    const start = new Date(entry.entryDate).getTime();
+    const end = new Date(entry.closedAt || entry.exitDate!).getTime();
+    if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
+      return (end - start) / 60_000;
+    }
+  }
+
+  if (entry.timeInTrade) {
+    const hoursMatch = entry.timeInTrade.match(/(\d+)\s*h/);
+    const minsMatch = entry.timeInTrade.match(/(\d+)\s*m/);
+    const hours = hoursMatch ? parseInt(hoursMatch[1], 10) : 0;
+    const mins = minsMatch ? parseInt(minsMatch[1], 10) : 0;
+    if (hours > 0 || mins > 0) return hours * 60 + mins;
+  }
+
+  return null;
+}
+
+export function formatHoldingDuration(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return '0m';
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 export function getTrustLedgerInsights(entries: LedgerEntry[]): TrustLedgerInsights {
   const closedTrades = entries.filter((entry) => entry.recordType === 'Closed Trade');
   const wins = closedTrades.filter((entry) => entry.outcome === 'Win');
@@ -231,6 +260,66 @@ export function getTrustLedgerInsights(entries: LedgerEntry[]): TrustLedgerInsig
   const winAmounts = wins.map((entry) => entry.profitLoss ?? entry.pnl ?? 0);
   const lossAmounts = losses.map((entry) => entry.profitLoss ?? entry.pnl ?? 0);
   const totalProfitLoss = closedTrades.reduce((sum, entry) => sum + (entry.profitLoss ?? entry.pnl ?? 0), 0);
+
+  const pnlList = closedTrades.map((entry) => entry.profitLoss ?? entry.pnl ?? 0);
+  const meanReturn = averageNumbers(pnlList);
+  const variance =
+    pnlList.length > 1
+      ? pnlList.reduce((sum, val) => sum + Math.pow(val - meanReturn, 2), 0) / (pnlList.length - 1)
+      : 0;
+  const stdDev = Math.sqrt(variance);
+  const annualizationFactor = Math.sqrt(Math.min(closedTrades.length, 252));
+  const sharpeRatio = stdDev > 0 ? Number(((meanReturn / stdDev) * annualizationFactor).toFixed(2)) : 0;
+
+  const negativeReturns = pnlList.filter((val) => val < 0);
+  const downsideVariance =
+    negativeReturns.length > 0
+      ? negativeReturns.reduce((sum, val) => sum + Math.pow(val, 2), 0) / negativeReturns.length
+      : 0;
+  const downsideStdDev = Math.sqrt(downsideVariance);
+  const sortinoRatio =
+    downsideStdDev > 0 ? Number(((meanReturn / downsideStdDev) * annualizationFactor).toFixed(2)) : 0;
+
+  const grossWins = winAmounts.reduce((sum, val) => sum + val, 0);
+  const grossLosses = Math.abs(lossAmounts.reduce((sum, val) => sum + val, 0));
+  const profitFactor = grossLosses > 0 ? Number((grossWins / grossLosses).toFixed(2)) : (grossWins > 0 ? 99.9 : 0);
+
+  // Chronological curve
+  const sortedTrades = [...closedTrades].sort((a, b) => {
+    const timeA = new Date(a.closedAt ?? a.exitDate ?? a.updatedAt ?? 0).getTime();
+    const timeB = new Date(b.closedAt ?? b.exitDate ?? b.updatedAt ?? 0).getTime();
+    return timeA - timeB;
+  });
+
+  let runningPnl = 0;
+  let peak = 0;
+  let maxDrawdown = 0;
+  let maxDrawdownPercent = 0;
+
+  const cumulativePnlCurve: EquityPoint[] = sortedTrades.map((entry, index) => {
+    const tradePnl = entry.profitLoss ?? entry.pnl ?? 0;
+    runningPnl += tradePnl;
+    if (runningPnl > peak) peak = runningPnl;
+    const drawdown = Math.max(0, peak - runningPnl);
+    const drawdownPercent = peak > 0 ? (drawdown / peak) * 100 : 0;
+
+    if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+    if (drawdownPercent > maxDrawdownPercent) maxDrawdownPercent = drawdownPercent;
+
+    return {
+      tradeNumber: index + 1,
+      date: formatShortDate(entry.closedAt ?? entry.exitDate ?? entry.updatedAt),
+      symbol: entry.symbol,
+      outcome: entry.outcome,
+      tradePnl,
+      cumulativePnl: runningPnl,
+      drawdown,
+      drawdownPercent: Number(drawdownPercent.toFixed(1)),
+    };
+  });
+
+  const winDurations = wins.map(parseHoldingMinutes).filter((d): d is number => d !== null);
+  const lossDurations = losses.map(parseHoldingMinutes).filter((d): d is number => d !== null);
 
   return {
     totalWins: wins.length,
@@ -243,5 +332,13 @@ export function getTrustLedgerInsights(entries: LedgerEntry[]): TrustLedgerInsig
     lossesMissingVolume: losses.filter((entry) => entry.volumeConfirmation !== true).length,
     lossesLowRiskReward: losses.filter((entry) => typeof entry.riskRewardRatio === 'number' && entry.riskRewardRatio < 2).length,
     lossCountByConfidenceBucket: countBy(losses, (entry) => confidenceBucket(entry.confidenceScore)),
+    cumulativePnlCurve,
+    sharpeRatio,
+    sortinoRatio,
+    maxDrawdown: Number(maxDrawdown.toFixed(2)),
+    maxDrawdownPercent: Number(maxDrawdownPercent.toFixed(1)),
+    averageWinHoldingTimeMinutes: averageNumbers(winDurations),
+    averageLossHoldingTimeMinutes: averageNumbers(lossDurations),
+    profitFactor,
   };
 }

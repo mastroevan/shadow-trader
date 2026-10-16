@@ -72,6 +72,10 @@ test("evaluateTradeGate returns human-readable rejection reasons", () => {
   assert(result.reasons.includes("Confidence score below 75%"));
   assert(result.reasons.includes("Risk/reward below 2:1"));
   assert(result.reasons.includes("No volume confirmation"));
+  assert.equal(result.checklist.length, 6);
+  assert.equal(result.checklist.find((c) => c.id === "confidence")?.passed, false);
+  assert.equal(result.checklist.find((c) => c.id === "volume")?.passed, false);
+  assert.equal(result.checklist.find((c) => c.id === "cooldown")?.passed, true);
 });
 
 test("isTickerOnCooldown only flags recent losses", () => {

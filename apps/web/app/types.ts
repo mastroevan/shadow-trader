@@ -160,6 +160,15 @@ export type MarketSnapshotResponse = Pick<AnalyzeResponse, 'quote' | 'candles' |
   message?: string;
 };
 
+export type RiskGateCheckItem = {
+  id: string;
+  label: string;
+  passed: boolean;
+  actual: string;
+  threshold: string;
+  detail?: string;
+};
+
 export type SavedWatchlistEntry = {
   id: string;
   symbol: string;
@@ -193,6 +202,7 @@ export type SavedWatchlistEntry = {
   riskPerShare?: number | null;
   gateStatus?: 'APPROVED' | 'REJECTED';
   gateReasons?: string[];
+  gateChecklist?: RiskGateCheckItem[];
   triggerPrice?: number | null;
   triggeredAt?: string;
   triggerReason?: string;
@@ -245,6 +255,17 @@ export type LedgerEntry = SavedWatchlistEntry & {
   notes?: string;
 };
 
+export type EquityPoint = {
+  tradeNumber: number;
+  date: string;
+  symbol: string;
+  outcome?: 'Win' | 'Loss';
+  tradePnl: number;
+  cumulativePnl: number;
+  drawdown: number;
+  drawdownPercent: number;
+};
+
 export type TrustLedgerInsights = {
   totalWins: number;
   totalLosses: number;
@@ -256,4 +277,63 @@ export type TrustLedgerInsights = {
   lossesMissingVolume: number;
   lossesLowRiskReward: number;
   lossCountByConfidenceBucket: Record<string, number>;
+  // Advanced Portfolio Metrics
+  cumulativePnlCurve: EquityPoint[];
+  sharpeRatio: number;
+  sortinoRatio: number;
+  maxDrawdown: number;
+  maxDrawdownPercent: number;
+  averageWinHoldingTimeMinutes: number;
+  averageLossHoldingTimeMinutes: number;
+  profitFactor: number;
+};
+
+export type BacktestStrategy = 'BREAKOUT_MOMENTUM' | 'VWAP_PULLBACK' | 'MEAN_REVERSION';
+
+export type BacktestTrade = {
+  id: string;
+  symbol: string;
+  entryDate: string;
+  exitDate: string;
+  direction: 'LONG' | 'SHORT';
+  entryPrice: number;
+  exitPrice: number;
+  outcome: 'Win' | 'Loss';
+  pnl: number;
+  pnlPercent: number;
+  holdingBars: number;
+  exitReason: 'STOP_LOSS' | 'TAKE_PROFIT' | 'TIMEOUT';
+};
+
+export type BacktestEquityPoint = {
+  barIndex: number;
+  date: string;
+  equity: number;
+  drawdown: number;
+  drawdownPercent: number;
+};
+
+export type BacktestResult = {
+  symbol: string;
+  strategy: BacktestStrategy;
+  lookbackDays: number;
+  candleCount: number;
+  initialCapital: number;
+  endingCapital: number;
+  netProfit: number;
+  netReturnPercent: number;
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  profitFactor: number;
+  maxDrawdown: number;
+  maxDrawdownPercent: number;
+  sharpeRatio: number;
+  sortinoRatio: number;
+  averageWin: number;
+  averageLoss: number;
+  averageHoldingBars: number;
+  equityCurve: BacktestEquityPoint[];
+  trades: BacktestTrade[];
 };

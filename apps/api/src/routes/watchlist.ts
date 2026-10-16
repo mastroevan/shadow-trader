@@ -4,6 +4,7 @@ import {
   closeTradeEntry,
   deleteLedgerEntry,
   deleteWatchlistEntry,
+  evaluateWatchlistRiskGate,
   listLedgerEntries,
   listTradeEntries,
   listWatchlistEntries,
@@ -162,6 +163,19 @@ router.post("/watchlist/:id/paper-trade", async (req, res) => {
   }
 
   return res.status(201).json({ entry: move.entry });
+});
+
+router.post("/watchlist/:id/evaluate-gate", async (req, res) => {
+  const result = await evaluateWatchlistRiskGate(req.params.id);
+
+  if (!result) {
+    return res.status(404).json({
+      error: "WATCHLIST_ENTRY_NOT_FOUND",
+      message: "No watchlist entry was found for that id.",
+    });
+  }
+
+  return res.json(result);
 });
 
 router.post("/watchlist/:id/skip-confirmation", async (req, res) => {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookmarkPlus, RefreshCw } from 'lucide-react';
+import { BookmarkPlus, CheckCircle2, RefreshCw, ShieldAlert, ShieldCheck, XCircle } from 'lucide-react';
 import { CARD_CLASS } from '../constants';
 import { SavedWatchlistEntry, WatchlistStatus } from '../types';
 import {
@@ -15,9 +15,11 @@ export function WatchlistCard({
   entries,
   loading,
   updatingStatusId,
+  evaluatingGateId,
   quantityDrafts,
   onRefresh,
   onUpdateStatus,
+  onEvaluateGate,
   onConfirmOpenTrade,
   onSkipConfirmation,
   onQuantityChange,
@@ -26,9 +28,11 @@ export function WatchlistCard({
   entries: SavedWatchlistEntry[];
   loading: boolean;
   updatingStatusId: string | null;
+  evaluatingGateId?: string | null;
   quantityDrafts: Record<string, string>;
   onRefresh: () => void;
   onUpdateStatus: (entryId: string, status: WatchlistStatus) => void;
+  onEvaluateGate?: (entryId: string) => void;
   onConfirmOpenTrade: (entry: SavedWatchlistEntry) => void;
   onSkipConfirmation: (entry: SavedWatchlistEntry) => void;
   onQuantityChange: (entryId: string, value: string) => void;
@@ -191,6 +195,21 @@ export function WatchlistCard({
                     >
                       {entry.direction || 'NEUTRAL'}
                     </span>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                        entry.gateStatus === 'APPROVED'
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                          : entry.gateStatus === 'REJECTED'
+                          ? 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300'
+                          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                      }`}
+                    >
+                      {entry.gateStatus === 'APPROVED'
+                        ? 'Gate: Approved'
+                        : entry.gateStatus === 'REJECTED'
+                        ? 'Gate: Rejected'
+                        : 'Gate: Unchecked'}
+                    </span>
                   </div>
 
                   <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm font-semibold text-zinc-700 dark:text-zinc-300 sm:grid-cols-2 lg:grid-cols-4">
@@ -215,6 +234,53 @@ export function WatchlistCard({
                       <dd className="inline text-zinc-950 dark:text-zinc-50">{formatShortDate(entry.createdAt)}</dd>
                     </div>
                   </dl>
+
+                  {/* Risk Gate Checklist Breakdown */}
+                  <div className="mt-3 rounded-lg border border-zinc-200/80 bg-zinc-50/80 p-3 dark:border-zinc-800/80 dark:bg-zinc-900/40">
+                    <div className="mb-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                      <span className="flex items-center gap-1.5">
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                        Risk Gate Checklist
+                      </span>
+                      {entry.gateReasons && entry.gateReasons.length > 0 && (
+                        <span className="text-red-600 dark:text-red-400">
+                          {entry.gateReasons.length} issue{entry.gateReasons.length > 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+
+                    {entry.gateChecklist && entry.gateChecklist.length > 0 ? (
+                      <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                        {entry.gateChecklist.map((check) => (
+                          <div
+                            key={check.id}
+                            className="flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300"
+                          >
+                            {check.passed ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                            ) : (
+                              <XCircle className="h-3.5 w-3.5 shrink-0 text-red-500 dark:text-red-400" />
+                            )}
+                            <span className="font-semibold">{check.label}:</span>
+                            <span
+                              className={
+                                check.passed
+                                  ? 'text-zinc-600 dark:text-zinc-400'
+                                  : 'font-bold text-red-600 dark:text-red-400'
+                              }
+                            >
+                              {check.actual}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+                        <span>Click &quot;Evaluate Risk Gate&quot; below to run gatekeeper checks.</span>
+                      </div>
+                    )}
+                  </div>
+
                   {entry.triggerWarning && (
                     <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
                       {entry.triggerWarning}
@@ -231,6 +297,18 @@ export function WatchlistCard({
                 >
                   View Thesis
                 </button>
+
+                {onEvaluateGate && (
+                  <button
+                    type="button"
+                    disabled={evaluatingGateId === entry.id}
+                    onClick={() => onEvaluateGate(entry.id)}
+                    className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 transition hover:bg-emerald-100 hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70"
+                  >
+                    <ShieldCheck className={`h-3.5 w-3.5 ${evaluatingGateId === entry.id ? 'animate-spin' : ''}`} />
+                    {evaluatingGateId === entry.id ? 'Evaluating...' : 'Evaluate Risk Gate'}
+                  </button>
+                )}
 
                 {(['Invalidated', 'Expired'] as WatchlistStatus[]).map((status) => (
                   <button

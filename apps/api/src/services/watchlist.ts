@@ -8,6 +8,8 @@ import {
 import {
   evaluateTradeGate,
   type GateStatus,
+  type RiskGateCheckItem,
+  type TradeGateEvaluation,
 } from "./tradeGatekeeper";
 
 export type WatchlistEntry = {
@@ -47,6 +49,7 @@ export type WatchlistEntry = {
   riskPerShare?: number | null;
   gateStatus?: GateStatus;
   gateReasons?: string[];
+  gateChecklist?: RiskGateCheckItem[];
   triggerPrice?: number | null;
   triggeredAt?: string;
   triggerReason?: string;
@@ -219,6 +222,7 @@ export async function upsertWatchlistEntry(
         riskPerShare: gate.calculated.riskPerShare,
         gateStatus: gate.approved ? "APPROVED" : "REJECTED",
         gateReasons: gate.reasons,
+        gateChecklist: gate.checklist,
         status: "Watching",
         createdAt: existingEntry.createdAt,
         updatedAt: now,
@@ -237,6 +241,7 @@ export async function upsertWatchlistEntry(
         riskPerShare: gate.calculated.riskPerShare,
         gateStatus: gate.approved ? "APPROVED" : "REJECTED",
         gateReasons: gate.reasons,
+        gateChecklist: gate.checklist,
         createdAt: now,
         updatedAt: now,
       };
@@ -483,6 +488,7 @@ export async function markWatchlistEntryPendingConfirmation(
     riskPerShare: gate.calculated.riskPerShare,
     gateStatus: gate.approved ? "APPROVED" : "REJECTED",
     gateReasons: gate.reasons,
+    gateChecklist: gate.checklist,
     triggerPrice: input.triggerPrice,
     triggeredAt: now,
     triggerReason: input.triggerReason,
@@ -495,6 +501,62 @@ export async function markWatchlistEntryPendingConfirmation(
   });
 
   return nextEntry;
+}
+
+export async function evaluateWatchlistRiskGate(
+  id: string
+): Promise<{ entry: WatchlistEntry; evaluation: TradeGateEvaluation } | null> {
+  const db = await getDb();
+  const [row, ledgerEntries] = await Promise.all([
+    db.tradeLifecycleEntry.findUnique({ where: { id } }),
+    listLedgerEntries(),
+  ]);
+
+  if (!row || row.kind !== KIND_WATCHLIST) return null;
+
+  const current = normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
+  const entryPrice =
+    current.entryPrice ??
+    current.startPrice ??
+    parseFirstPriceLevel(current.entryZone) ??
+    parseFirstPriceLevel(current.entryTrigger);
+  const stopLoss = current.stopLoss ?? parseFirstPriceLevel(current.stopLossTrigger);
+  const takeProfit = current.takeProfit ?? parseFirstPriceLevel(current.takeProfitTrigger);
+
+  const evaluation = evaluateTradeGate({
+    symbol: current.symbol,
+    direction: current.direction,
+    entryPrice,
+    stopLoss,
+    takeProfit,
+    confidenceScore: current.confidenceScore,
+    volumeConfirmation: current.volumeConfirmation,
+    trendStrength: current.trendStrength,
+    closedTrades: ledgerEntries,
+  });
+
+  const now = new Date().toISOString();
+  const nextEntry: WatchlistEntry = {
+    ...current,
+    entryPrice,
+    stopLoss,
+    takeProfit,
+    riskRewardRatio: evaluation.calculated.riskRewardRatio,
+    positionSize: evaluation.calculated.positionSize,
+    maxDollarRisk: evaluation.calculated.maxDollarRisk,
+    riskPerShare: evaluation.calculated.riskPerShare,
+    gateStatus: evaluation.approved ? "APPROVED" : "REJECTED",
+    gateReasons: evaluation.reasons,
+    gateChecklist: evaluation.checklist,
+    updatedAt: now,
+  };
+
+  await db.tradeLifecycleEntry.update({
+    where: { id },
+    data: lifecycleRowUpdate(KIND_WATCHLIST, nextEntry),
+  });
+
+  return { entry: nextEntry, evaluation };
 }
 
 export async function skipPendingWatchlistConfirmation(id: string): Promise<WatchlistEntry | null> {
@@ -697,6 +759,7 @@ function normalizeStoredEntry(entry: WatchlistEntry): WatchlistEntry {
     riskPerShare: normalizeNumber(entry.riskPerShare),
     gateStatus: entry.gateStatus === "APPROVED" || entry.gateStatus === "REJECTED" ? entry.gateStatus : undefined,
     gateReasons: Array.isArray(entry.gateReasons) ? entry.gateReasons.map(String) : [],
+    gateChecklist: Array.isArray(entry.gateChecklist) ? entry.gateChecklist : undefined,
     triggerPrice:
       typeof entry.triggerPrice === "number" && Number.isFinite(entry.triggerPrice)
         ? entry.triggerPrice
