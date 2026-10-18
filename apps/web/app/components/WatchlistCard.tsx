@@ -24,6 +24,7 @@ export function WatchlistCard({
   onSkipConfirmation,
   onQuantityChange,
   onViewThesis,
+  onExecuteBroker,
 }: {
   entries: SavedWatchlistEntry[];
   loading: boolean;
@@ -37,6 +38,7 @@ export function WatchlistCard({
   onSkipConfirmation: (entry: SavedWatchlistEntry) => void;
   onQuantityChange: (entryId: string, value: string) => void;
   onViewThesis: (entry: SavedWatchlistEntry) => void;
+  onExecuteBroker?: (entry: SavedWatchlistEntry) => void;
 }) {
   const pendingEntries = entries.filter((entry) => isTriggeredReviewStatus(entry.status));
   const watchingEntries = entries.filter((entry) => !isTriggeredReviewStatus(entry.status));
@@ -307,6 +309,17 @@ export function WatchlistCard({
                   >
                     <ShieldCheck className={`h-3.5 w-3.5 ${evaluatingGateId === entry.id ? 'animate-spin' : ''}`} />
                     {evaluatingGateId === entry.id ? 'Evaluating...' : 'Evaluate Risk Gate'}
+                  </button>
+                )}
+
+                {onExecuteBroker && (
+                  <button
+                    type="button"
+                    disabled={updatingStatusId === entry.id}
+                    onClick={() => onExecuteBroker(entry)}
+                    className="inline-flex min-h-9 items-center justify-center rounded-lg border border-blue-300 bg-blue-50 px-3 text-xs font-bold text-blue-800 transition hover:bg-blue-100 hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-950/70"
+                  >
+                    Execute via Broker
                   </button>
                 )}
 

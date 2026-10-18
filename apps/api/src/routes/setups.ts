@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { getMarketSnapshot, isValidMarketQuote } from "../services/marketSnapshot";
-import { analyzeSetup, SetupAnalysisError } from "../services/setupAnalysis";
+import {
+  analyzeSetup,
+  compareSetups,
+  getAgentModelRegistry,
+  SetupAnalysisError,
+} from "../services/setupAnalysis";
 import { resolveInstrument } from "../utils/symbols";
 import { runBacktest } from "../services/backtesting";
 
@@ -143,6 +148,19 @@ router.get("/market/stream", async (req, res) => {
   });
 });
 
+router.get("/agent/models", async (_req, res) => {
+  try {
+    const registry = await getAgentModelRegistry();
+    return res.json(registry);
+  } catch (error) {
+    console.error("Agent models route failed:", error);
+    return res.status(500).json({
+      error: "AGENT_MODELS_FAILED",
+      message: error instanceof Error ? error.message : "Failed to fetch model registry",
+    });
+  }
+});
+
 router.post("/setups/analyze", async (req, res) => {
   try {
     const analysis = await analyzeSetup({
@@ -150,6 +168,8 @@ router.post("/setups/analyze", async (req, res) => {
       assetClass: req.body.assetClass,
       exchange: req.body.exchange,
       timeframe: req.body.timeframe,
+      provider: typeof req.body.provider === "string" ? req.body.provider : undefined,
+      model: typeof req.body.model === "string" ? req.body.model : undefined,
     });
 
     return res.json(analysis);
@@ -166,6 +186,38 @@ router.post("/setups/analyze", async (req, res) => {
         error instanceof Error
           ? error.message
           : "Unknown setup analyze route error",
+    });
+  }
+});
+
+router.post("/setups/compare", async (req, res) => {
+  try {
+    const symbol = String(req.body.symbol ?? "").trim();
+    if (!symbol) {
+      return res.status(400).json({
+        error: "MISSING_SYMBOL",
+        message: "Please enter a symbol for model comparison.",
+      });
+    }
+
+    const result = await compareSetups({
+      symbol,
+      targets: Array.isArray(req.body.targets) ? req.body.targets : undefined,
+      assetClass: req.body.assetClass,
+      exchange: req.body.exchange,
+      timeframe: req.body.timeframe,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    if (error instanceof SetupAnalysisError) {
+      return res.status(error.statusCode).json(error.payload);
+    }
+
+    console.error("Setup compare route failed:", error);
+    return res.status(500).json({
+      error: "SETUP_COMPARE_FAILED",
+      message: error instanceof Error ? error.message : "Failed to compare setup models",
     });
   }
 });

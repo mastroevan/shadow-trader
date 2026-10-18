@@ -208,6 +208,12 @@ export type SavedWatchlistEntry = {
   triggerReason?: string;
   triggerWarning?: string;
   triggerWarningAt?: string;
+  brokerProvider?: 'ALPACA' | 'COINBASE' | 'SIMULATED';
+  brokerOrderId?: string;
+  executionMode?: 'PAPER' | 'LIVE';
+  brokerStatus?: string;
+  brokerFillPrice?: number;
+  brokerFilledAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -227,6 +233,12 @@ export type TradeEntry = SavedWatchlistEntry & {
   stopLossHit?: boolean;
   stopLossHitAt?: string;
   notes: string;
+  brokerProvider?: 'ALPACA' | 'COINBASE' | 'SIMULATED';
+  brokerOrderId?: string;
+  executionMode?: 'PAPER' | 'LIVE';
+  brokerStatus?: string;
+  brokerFillPrice?: number;
+  brokerFilledAt?: string;
 };
 
 export type LedgerEntry = SavedWatchlistEntry & {
@@ -337,3 +349,59 @@ export type BacktestResult = {
   equityCurve: BacktestEquityPoint[];
   trades: BacktestTrade[];
 };
+
+export type ModelProvider = 'openai' | 'anthropic' | 'google';
+
+export type ModelTarget = {
+  provider: string;
+  model?: string;
+};
+
+export type ModelComparisonItem = {
+  provider: string;
+  model: string;
+  success: boolean;
+  thesis?: TradingThesis;
+  error?: string;
+};
+
+export type ModelConsensus = {
+  symbol: string;
+  majorityBias: string;
+  majorityDirection: string;
+  agreementScore: number;
+  averageConfidence: number;
+  modelsCompared: number;
+  divergenceDetected: boolean;
+};
+
+export type SetupComparisonResult = {
+  symbol: string;
+  consensus: ModelConsensus;
+  comparisons: ModelComparisonItem[];
+  quote?: Quote;
+  candles?: Candle[];
+};
+
+export type BrokerType = 'ALPACA' | 'COINBASE' | 'SIMULATED';
+
+export type BrokerAccount = {
+  broker: BrokerType;
+  accountId: string;
+  status: string;
+  currency: string;
+  cash: number;
+  portfolioValue: number;
+  buyingPower: number;
+  isLive: boolean;
+  isConfigured: boolean;
+};
+
+export type BrokerStatusResult = {
+  alpaca: BrokerAccount;
+  coinbase: BrokerAccount;
+  defaultEquitiesBroker: BrokerType;
+  defaultCryptoBroker: BrokerType;
+  anyConfigured: boolean;
+};
+

@@ -26,6 +26,7 @@ export function SetupTicket({
   decisionMessage,
   onAddToWatchlist,
   onOpenDetails,
+  onOpenCompare,
 }: {
   symbol: string;
   thesis?: TradingThesis;
@@ -38,6 +39,7 @@ export function SetupTicket({
   decisionMessage: string;
   onAddToWatchlist: () => void;
   onOpenDetails: () => void;
+  onOpenCompare?: () => void;
 }) {
   const bias =
     setup?.bias ??
@@ -122,6 +124,15 @@ export function SetupTicket({
         >
           Open Details
         </button>
+        {onOpenCompare && (
+          <button
+            type="button"
+            onClick={onOpenCompare}
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50/60 px-4 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100 hover:border-emerald-400 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+          >
+            Compare AI Models
+          </button>
+        )}
       </div>
     </aside>
   );

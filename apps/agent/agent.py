@@ -82,13 +82,24 @@ def get_tools():
     ]
 
 
-def get_selected_model() -> tuple[str, str]:
+def get_selected_model(provider: str = "openai") -> tuple[str, str]:
     mode = os.getenv("SHADOW_TRADER_MODE", "fast").lower()
 
-    if mode == "deep":
-        selected_model = os.getenv("OPENAI_MODEL_DEEP", "gpt-4o")
+    if provider == "anthropic":
+        if mode == "deep":
+            selected_model = os.getenv("ANTHROPIC_MODEL_DEEP", "claude-3-5-sonnet-20241022")
+        else:
+            selected_model = os.getenv("ANTHROPIC_MODEL_FAST", "claude-3-5-haiku-20241022")
+    elif provider == "google":
+        if mode == "deep":
+            selected_model = os.getenv("GOOGLE_MODEL_DEEP", "gemini-1.5-pro")
+        else:
+            selected_model = os.getenv("GOOGLE_MODEL_FAST", "gemini-2.0-flash")
     else:
-        selected_model = os.getenv("OPENAI_MODEL_FAST", "gpt-4o-mini")
+        if mode == "deep":
+            selected_model = os.getenv("OPENAI_MODEL_DEEP", "gpt-4o")
+        else:
+            selected_model = os.getenv("OPENAI_MODEL_FAST", "gpt-4o-mini")
 
     return mode, selected_model
 
@@ -104,18 +115,43 @@ def get_openai_timeout_seconds() -> float:
     return max(timeout_ms, 5000) / 1000
 
 
-def build_agent(use_tools: bool = True):
-    mode, selected_model = get_selected_model()
-    print(f"Using OpenAI model: {selected_model} ({mode} mode)")
+def create_chat_model(provider: str, model_name: str, timeout: float):
+    if provider == "anthropic":
+        try:
+            from langchain_anthropic import ChatAnthropic
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            return ChatAnthropic(model=model_name, temperature=0, timeout=timeout, api_key=api_key)
+        except ImportError:
+            pass
+    elif provider == "google":
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            return ChatGoogleGenerativeAI(model=model_name, temperature=0, timeout=timeout, google_api_key=api_key)
+        except ImportError:
+            pass
 
-    model = ChatOpenAI(
-        model=selected_model,
+    # Default to ChatOpenAI
+    return ChatOpenAI(
+        model=model_name if provider == "openai" else "gpt-4o-mini",
         temperature=0,
+        timeout=timeout,
+    )
+
+
+def build_agent(provider: str = "openai", model: Optional[str] = None, use_tools: bool = True):
+    mode, default_model = get_selected_model(provider)
+    selected_model = model or default_model
+    print(f"Using {provider.capitalize()} model: {selected_model} ({mode} mode)")
+
+    chat_model = create_chat_model(
+        provider=provider,
+        model_name=selected_model,
         timeout=get_openai_timeout_seconds(),
     )
 
     tools = get_tools() if use_tools else []
-    model_for_request = model.bind_tools(tools) if tools else model
+    model_for_request = chat_model.bind_tools(tools) if tools and hasattr(chat_model, "bind_tools") else chat_model
 
     def call_model(state: AgentState):
         response = model_for_request.invoke(
@@ -127,11 +163,11 @@ def build_agent(use_tools: bool = True):
     workflow = StateGraph(AgentState)
 
     workflow.add_node("agent", call_model)
-    if tools:
+    if tools and hasattr(chat_model, "bind_tools"):
         workflow.add_node("tools", ToolNode(tools))
 
     workflow.add_edge(START, "agent")
-    if tools:
+    if tools and hasattr(chat_model, "bind_tools"):
         workflow.add_conditional_edges(
             "agent",
             should_continue,
@@ -156,8 +192,13 @@ def should_continue(state: AgentState):
     return END
 
 
-def analyze(question: str, use_tools: bool = True) -> str:
-    agent = build_agent(use_tools=use_tools)
+def analyze(
+    question: str,
+    provider: str = "openai",
+    model: Optional[str] = None,
+    use_tools: bool = True,
+) -> str:
+    agent = build_agent(provider=provider, model=model, use_tools=use_tools)
     result = agent.invoke(
         {
             "messages": [
@@ -167,6 +208,7 @@ def analyze(question: str, use_tools: bool = True) -> str:
     )
 
     return result["messages"][-1].content
+
 
 
 if __name__ == "__main__":

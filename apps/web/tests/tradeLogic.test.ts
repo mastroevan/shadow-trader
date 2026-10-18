@@ -18,8 +18,8 @@ import {
   getWatchlistDecision,
   isTriggeredReviewStatus,
   watchlistStatusClass,
-} from '../app/utils/tradeLogic.ts';
-import { LedgerEntry, SavedWatchlistEntry, SignalDetail, TradingThesis } from '../app/types.ts';
+} from '../app/utils/tradeLogic';
+import { LedgerEntry, SavedWatchlistEntry, SignalDetail, TradingThesis } from '../app/types';
 
 describe('tradeLogic', () => {
   describe('getConfidencePct', () => {

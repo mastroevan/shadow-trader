@@ -13,7 +13,7 @@ import {
   formatTime,
   parseFirstPriceLevel,
   titleCase,
-} from '../app/utils/formatters.ts';
+} from '../app/utils/formatters';
 
 describe('formatters', () => {
   describe('titleCase', () => {

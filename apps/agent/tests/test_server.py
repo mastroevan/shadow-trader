@@ -216,3 +216,101 @@ def test_compact_text():
     assert compact_text("Short text", 20) == "Short text"
     assert compact_text("A very long text that exceeds the limit", 10) == "A very lon..."
     assert compact_text(None, 10) == ""
+
+
+def test_get_models_endpoint():
+    from server import get_models
+    data = get_models()
+    assert "providers" in data
+    provider_ids = [p["id"] for p in data["providers"]]
+    assert "openai" in provider_ids
+    assert "anthropic" in provider_ids
+    assert "google" in provider_ids
+
+
+def test_resolve_provider_and_model_all_providers():
+    from providers import resolve_provider_and_model
+
+    p, m, mode = resolve_provider_and_model("openai", None, "fast")
+    assert p == "openai"
+    assert m == "gpt-4o-mini"
+    assert mode == "fast"
+
+    p, m, mode = resolve_provider_and_model("anthropic", None, "deep")
+    assert p == "anthropic"
+    assert m == "claude-3-5-sonnet-20241022"
+    assert mode == "deep"
+
+    p, m, mode = resolve_provider_and_model("google", None, "fast")
+    assert p == "google"
+    assert m == "gemini-2.0-flash"
+    assert mode == "fast"
+
+
+def test_resolve_provider_and_model_invalid():
+    from providers import resolve_provider_and_model
+
+    with pytest.raises(ValueError) as exc:
+        resolve_provider_and_model("invalid_provider")
+    assert "Unsupported provider" in str(exc.value)
+
+
+def test_compare_models_endpoint_consensus():
+    from server import compare_models, CompareRequest, CompareTarget
+
+    valid_thesis_json = """{
+        "symbol": "BTC/USD",
+        "direction": "BULLISH",
+        "thesis": "Strong upward momentum above VWAP and EMA alignment.",
+        "strategy": "Intraday momentum",
+        "tradingStyle": "Day Trading",
+        "analysisTimeframe": "5m",
+        "expectedHold": "1-3 hours",
+        "analysisReason": "High volume breakout confirmed.",
+        "confidenceScore": 0.85,
+        "bullishFactors": ["Above VWAP", "Rising volume"],
+        "bearishFactors": ["Near overhead resistance", "Short-term overbought"],
+        "riskExplanation": "Standard stop loss below swing low.",
+        "suggestedAction": "ALERT",
+        "timeHorizon": "SHORT",
+        "setup": {
+            "bias": "LONG",
+            "setupType": "BREAKOUT",
+            "entryZone": "68000-68100",
+            "stopLoss": "67500",
+            "takeProfit": "69200",
+            "riskReward": "2.0:1",
+            "maxHoldTime": "2h",
+            "warnings": ["Monitor volume continuation"]
+        },
+        "tradePlan": {
+            "entryTrigger": "Cross above 68100",
+            "invalidation": "Drop below 67500",
+            "watchConditions": ["Volume surge"]
+        },
+        "watchlistEntry": {
+            "symbol": "BTC/USD",
+            "reason": "Breakout pattern",
+            "direction": "BULLISH",
+            "confidenceScore": 0.85,
+            "createdAt": "2026-10-17T00:00:00Z"
+        }
+    }"""
+
+    req = CompareRequest(
+        targets=[
+            CompareTarget(provider="openai", model="gpt-4o-mini"),
+            CompareTarget(provider="anthropic", model="claude-3-5-haiku-20241022"),
+        ],
+        analysis=AnalyzeRequest(symbol="BTC/USD", quote={"price": 68000}),
+    )
+
+    with patch("server.analyze_structured_prompt", return_value=valid_thesis_json):
+        result = compare_models(req)
+        assert result["symbol"] == "BTC/USD"
+        assert result["consensus"]["majorityBias"] == "LONG"
+        assert result["consensus"]["majorityDirection"] == "BULLISH"
+        assert result["consensus"]["agreementScore"] == 1.0
+        assert result["consensus"]["averageConfidence"] == 0.85
+        assert len(result["comparisons"]) == 2
+

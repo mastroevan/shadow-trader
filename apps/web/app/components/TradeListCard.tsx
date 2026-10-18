@@ -16,6 +16,7 @@ export function TradeListCard({
   onMarkPriceChange,
   onUpdatePaperTrade,
   onCloseTrade,
+  onSyncBroker,
 }: {
   entries: TradeEntry[];
   closingTradeId: string | null;
@@ -24,6 +25,7 @@ export function TradeListCard({
   onMarkPriceChange: (entryId: string, value: string) => void;
   onUpdatePaperTrade: (entryId: string) => void;
   onCloseTrade: (entryId: string, outcome: 'Win' | 'Loss') => void;
+  onSyncBroker?: (entryId: string) => void;
 }) {
   return (
     <section className={CARD_CLASS}>
@@ -54,12 +56,31 @@ export function TradeListCard({
                   <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${watchlistStatusClass(entry.status)}`}>
                     Triggered
                   </span>
+                  {entry.brokerProvider && (
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      {entry.brokerProvider} ({entry.executionMode || 'PAPER'})
+                    </span>
+                  )}
+                  {entry.brokerOrderId && (
+                    <span className="font-mono text-[11px] text-zinc-400">
+                      ID: {entry.brokerOrderId.slice(0, 14)}
+                    </span>
+                  )}
                   <span className="text-xs font-semibold uppercase text-zinc-500 dark:text-zinc-400">
                     {formatDate(entry.entryDate ?? entry.updatedAt)}
                   </span>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                  {onSyncBroker && entry.brokerProvider && (
+                    <button
+                      type="button"
+                      onClick={() => onSyncBroker(entry.id)}
+                      className="inline-flex min-h-10 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    >
+                      Sync Broker
+                    </button>
+                  )}
                   {(['Win', 'Loss'] as const).map((outcome) => (
                     <button
                       key={outcome}

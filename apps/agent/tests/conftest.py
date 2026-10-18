@@ -68,6 +68,15 @@ if "pydantic" not in sys.modules:
             def dict(self, *args, **kwargs):
                 return self.__dict__
 
+            def model_copy(self, *args, **kwargs):
+                import copy
+                return copy.deepcopy(self)
+
+            def copy(self, *args, **kwargs):
+                import copy
+                return copy.deepcopy(self)
+
+
         def Field(default=None, default_factory=None, **kwargs):
             if default_factory is not None:
                 return default_factory()

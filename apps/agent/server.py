@@ -10,8 +10,20 @@ from pydantic import BaseModel, Field
 
 try:
     from apps.agent.agent import analyze
+    from apps.agent.providers import (
+        get_available_providers,
+        resolve_provider_and_model,
+        execute_llm_completion,
+        SUPPORTED_PROVIDERS,
+    )
 except ModuleNotFoundError:
     from agent import analyze
+    from providers import (
+        get_available_providers,
+        resolve_provider_and_model,
+        execute_llm_completion,
+        SUPPORTED_PROVIDERS,
+    )
 
 load_dotenv()
 
@@ -27,6 +39,8 @@ class AnalyzeRequest(BaseModel):
     question: Optional[str] = Field(default=None, min_length=2)
     ticker: Optional[str] = None
     mode: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
     symbol: Optional[str] = None
     originalInput: Optional[str] = None
     instrument: dict[str, Any] = Field(default_factory=dict)
@@ -43,23 +57,42 @@ class ChatAnalyzeResponse(BaseModel):
     response: str
     ticker: Optional[str] = None
     mode: str
+    provider: str
     model: str
     timestamp: str
 
 
+class CompareTarget(BaseModel):
+    provider: str
+    model: Optional[str] = None
+
+
+class CompareRequest(BaseModel):
+    targets: Optional[list[CompareTarget]] = None
+    analysis: AnalyzeRequest
+
+
 app = FastAPI(
-    title="Shadow Trader OpenAI/LangGraph Agent",
-    version="0.1.0",
-    description="FastAPI microservice for the Shadow Trader trading agent.",
+    title="Shadow Trader Multi-Provider Agent",
+    version="0.2.0",
+    description="FastAPI microservice with OpenAI, Anthropic Claude, and Google Gemini support.",
 )
 
 
 @app.get("/")
 def root():
     return {
-        "service": "Shadow Trader OpenAI/LangGraph Agent",
+        "service": "Shadow Trader Multi-Provider Agent",
         "status": "running",
+        "supported_providers": list(SUPPORTED_PROVIDERS.keys()),
         "docs": "/docs",
+    }
+
+
+@app.get("/models")
+def get_models():
+    return {
+        "providers": get_available_providers(),
     }
 
 
@@ -71,12 +104,20 @@ def health_check():
         "status": "ok",
         "mode": mode,
         "model": selected_model,
+        "providers_configured": [p["id"] for p in get_available_providers() if p["is_configured"]],
     }
 
 
 @app.post("/analyze")
 def analyze_trade(request: AnalyzeRequest):
-    mode, selected_model = get_mode_and_model(request.mode)
+    try:
+        provider, selected_model, mode = resolve_provider_and_model(
+            request.provider,
+            request.model,
+            request.mode,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
     try:
         with_agent_mode(mode)
@@ -84,19 +125,24 @@ def analyze_trade(request: AnalyzeRequest):
         if is_structured_app_request(request):
             raw_response = analyze_structured_prompt(
                 build_structured_prompt(request),
+                provider,
                 selected_model,
             )
             thesis = parse_agent_json(raw_response)
-            return validate_thesis_payload(thesis, request.symbol or request.ticker)
+            validated = validate_thesis_payload(thesis, request.symbol or request.ticker)
+            validated["provider"] = provider
+            validated["model"] = selected_model
+            return validated
 
         question = build_question_prompt(request)
-        response = analyze(question)
+        response = analyze(question, provider=provider, model=selected_model)
 
         return ChatAnalyzeResponse(
             success=True,
             response=response,
             ticker=request.ticker.upper() if request.ticker else None,
             mode=mode,
+            provider=provider,
             model=selected_model,
             timestamp=datetime.utcnow().isoformat() + "Z",
         )
@@ -106,8 +152,102 @@ def analyze_trade(request: AnalyzeRequest):
     except Exception as error:
         raise HTTPException(
             status_code=500,
-            detail=f"Agent analysis failed: {str(error)}",
+            detail=f"Agent analysis failed ({provider}/{selected_model}): {str(error)}",
         )
+
+
+@app.post("/analyze/compare")
+def compare_models(request: CompareRequest):
+    targets = request.targets or [
+        CompareTarget(provider="openai", model="gpt-4o-mini"),
+        CompareTarget(provider="anthropic", model="claude-3-5-haiku-20241022"),
+        CompareTarget(provider="google", model="gemini-2.0-flash"),
+    ]
+
+    comparisons = []
+    symbol = request.analysis.symbol or request.analysis.ticker or "UNKNOWN"
+
+    for target in targets:
+        if hasattr(request.analysis, "model_copy"):
+            sub_req = request.analysis.model_copy()
+        elif hasattr(request.analysis, "copy"):
+            sub_req = request.analysis.copy(deep=True)
+        else:
+            import copy
+            sub_req = copy.deepcopy(request.analysis)
+
+        sub_req.provider = target.provider
+        sub_req.model = target.model
+
+        try:
+            provider, model, mode = resolve_provider_and_model(
+                target.provider,
+                target.model,
+                sub_req.mode,
+            )
+            raw = analyze_structured_prompt(
+                build_structured_prompt(sub_req),
+                provider,
+                model,
+            )
+            thesis = parse_agent_json(raw)
+            validated = validate_thesis_payload(thesis, symbol)
+            validated["provider"] = provider
+            validated["model"] = model
+            comparisons.append({
+                "provider": provider,
+                "model": model,
+                "success": True,
+                "thesis": validated,
+            })
+        except Exception as err:
+            comparisons.append({
+                "provider": target.provider,
+                "model": target.model or "default",
+                "success": False,
+                "error": str(err),
+            })
+
+    # Calculate consensus metrics
+    successful = [c for c in comparisons if c.get("success") and "thesis" in c]
+    if successful:
+        biases = [c["thesis"]["setup"]["bias"] for c in successful]
+        directions = [c["thesis"]["direction"] for c in successful]
+        confidences = [c["thesis"]["confidenceScore"] for c in successful]
+
+        from collections import Counter
+        bias_counts = Counter(biases)
+        majority_bias = bias_counts.most_common(1)[0][0]
+        direction_counts = Counter(directions)
+        majority_direction = direction_counts.most_common(1)[0][0]
+        agreement_score = round(direction_counts[majority_direction] / len(successful), 2)
+        avg_confidence = round(sum(confidences) / len(confidences), 3)
+
+        consensus = {
+            "symbol": symbol,
+            "majorityBias": majority_bias,
+            "majorityDirection": majority_direction,
+            "agreementScore": agreement_score,
+            "averageConfidence": avg_confidence,
+            "modelsCompared": len(successful),
+            "divergenceDetected": agreement_score < 1.0,
+        }
+    else:
+        consensus = {
+            "symbol": symbol,
+            "majorityBias": "NEUTRAL",
+            "majorityDirection": "NEUTRAL",
+            "agreementScore": 0.0,
+            "averageConfidence": 0.0,
+            "modelsCompared": 0,
+            "divergenceDetected": False,
+        }
+
+    return {
+        "symbol": symbol,
+        "consensus": consensus,
+        "comparisons": comparisons,
+    }
 
 
 def get_mode_and_model(requested_mode: Optional[str] = None) -> tuple[str, str]:
@@ -142,65 +282,25 @@ def get_openai_timeout_seconds() -> float:
     return max(timeout_ms, 5000) / 1000
 
 
-def analyze_structured_prompt(prompt: str, model: str) -> str:
-    api_key = os.getenv("OPENAI_API_KEY")
-
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="OPENAI_API_KEY is not configured for the agent service.",
-        )
-
+def analyze_structured_prompt(prompt: str, provider: str = "openai", model: str = "gpt-4o-mini") -> str:
     try:
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "temperature": 0,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are Shadow Trader's trading analysis agent. "
-                            "Return only valid JSON matching the requested schema."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-            },
-            timeout=get_openai_timeout_seconds(),
+        content = execute_llm_completion(
+            provider=provider,
+            model=model,
+            prompt=prompt,
+            timeout_seconds=get_openai_timeout_seconds(),
         )
-    except requests.RequestException as error:
+    except Exception as error:
         raise HTTPException(
             status_code=502,
-            detail=f"OpenAI request failed: {str(error)}",
-        ) from error
-
-    if not response.ok:
-        raise HTTPException(
-            status_code=502,
-            detail=f"OpenAI request failed with status {response.status_code}: {response.text[:500]}",
-        )
-
-    payload = response.json()
-
-    try:
-        content = payload["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as error:
-        raise HTTPException(
-            status_code=502,
-            detail=f"OpenAI returned an unexpected response shape: {json.dumps(payload)[:500]}",
+            detail=f"{provider.capitalize()} analysis failed: {str(error)}",
         ) from error
 
     if not isinstance(content, str) or not content.strip():
-        raise HTTPException(status_code=502, detail="OpenAI returned an empty thesis.")
+        raise HTTPException(status_code=502, detail=f"{provider.capitalize()} returned an empty thesis.")
 
     return content
+
 
 
 def is_structured_app_request(request: AnalyzeRequest) -> bool:

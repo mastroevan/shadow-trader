@@ -394,6 +394,93 @@ export function useWatchlist({
     }
   }, [onError]);
 
+  const [brokerStatus, setBrokerStatus] = useState<import('../types').BrokerStatusResult | null>(null);
+
+  const fetchBrokerStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/brokers/status`, { headers: apiHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setBrokerStatus(data);
+      }
+    } catch {
+      // Graceful fallback if broker route isn't available
+    }
+  }, []);
+
+  const handleExecuteBrokerTrade = useCallback(
+    async (
+      id: string,
+      options: {
+        broker?: 'ALPACA' | 'COINBASE' | 'SIMULATED';
+        executionMode?: 'PAPER' | 'LIVE';
+        quantity?: number;
+      } = {}
+    ) => {
+      setUpdatingWatchlistStatusId(id);
+      try {
+        const response = await fetch(`${API_BASE_URL}/watchlist/${id}/broker-execute`, {
+          method: 'POST',
+          headers: apiHeaders(),
+          body: JSON.stringify(options),
+        });
+
+        if (response.status === 422) {
+          const data = (await response.json().catch(() => ({}))) as { reasons?: string[]; message?: string };
+          showToast({
+            type: 'warning',
+            title: 'Risk Gate Rejected Order',
+            body: data.reasons?.join(', ') || data.message || 'Setup failed risk gate.',
+          });
+          return;
+        }
+
+        if (!response.ok) {
+          const data = (await response.json().catch(() => ({}))) as { message?: string };
+          throw new Error(data.message || 'Broker execution failed.');
+        }
+
+        const data = await response.json();
+        showToast({
+          type: 'success',
+          title: `Order Executed via ${data.order?.broker || 'Broker'}`,
+          body: `${data.entry?.symbol} | Size: ${data.order?.qty} | Status: ${data.order?.status}`,
+        });
+
+        await loadWorkflow();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Broker execution failed.';
+        onError?.(message);
+      } finally {
+        setUpdatingWatchlistStatusId(null);
+      }
+    },
+    [loadWorkflow, onError, showToast]
+  );
+
+  const handleSyncBrokerTrade = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/trade-list/${id}/broker-sync`, {
+          method: 'POST',
+          headers: apiHeaders(),
+        });
+        if (res.ok) {
+          showToast({
+            type: 'success',
+            title: 'Broker Synchronized',
+            body: 'Trade fill status and mark price synced with broker.',
+          });
+          await loadWorkflow();
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Broker sync failed.';
+        onError?.(message);
+      }
+    },
+    [loadWorkflow, onError, showToast]
+  );
+
   return {
     watchlistEntries,
     tradeEntries,
@@ -408,6 +495,7 @@ export function useWatchlist({
     quantityDrafts,
     markPriceDrafts,
     pendingConfirmationEntry,
+    brokerStatus,
     toast,
     setToast,
     setWatchlistEntries,
@@ -417,6 +505,7 @@ export function useWatchlist({
     setMarkPriceDrafts,
     setPendingConfirmationEntry,
     loadWorkflow,
+    fetchBrokerStatus,
     handleEvaluateRiskGate,
     handleUpdateWatchlistStatus,
     handleConfirmOpenTrade,
@@ -425,6 +514,9 @@ export function useWatchlist({
     handleUpdatePaperTrade,
     handleDeleteLedgerEntry,
     handleClearTrustLedger,
+    handleExecuteBrokerTrade,
+    handleSyncBrokerTrade,
     showToast,
   };
 }
+

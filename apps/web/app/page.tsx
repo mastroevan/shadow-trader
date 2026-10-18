@@ -11,6 +11,8 @@ import {
   Search,
   Sun,
   Radio,
+  Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   AnalyzeResponse,
@@ -44,6 +46,8 @@ import { TradeListCard } from './components/TradeListCard';
 import { PendingConfirmationModal } from './components/PendingConfirmationModal';
 import { TrustLedgerCard } from './components/TrustLedgerCard';
 import { BacktestModal } from './components/BacktestModal';
+import { ModelCompareModal } from './components/ModelCompareModal';
+import { BrokerModal } from './components/BrokerModal';
 import { useTheme } from './hooks/useTheme';
 import { useMarketSnapshot } from './hooks/useMarketSnapshot';
 import { useWatchlist } from './hooks/useWatchlist';
@@ -78,6 +82,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [analysisModalOpen, setAnalysisModalOpen] = useState(false);
   const [backtestModalOpen, setBacktestModalOpen] = useState(false);
+  const [modelCompareModalOpen, setModelCompareModalOpen] = useState(false);
+  const [brokerModalOpen, setBrokerModalOpen] = useState(false);
   const [savingWatchlist, setSavingWatchlist] = useState(false);
   const [savedEntry, setSavedEntry] = useState<SavedWatchlistEntry | null>(null);
   const [selectedWatchlistEntry, setSelectedWatchlistEntry] = useState<SavedWatchlistEntry | null>(null);
@@ -101,6 +107,7 @@ export default function Home() {
     quantityDrafts,
     markPriceDrafts,
     pendingConfirmationEntry,
+    brokerStatus,
     toast,
     setToast,
     setWatchlistEntries,
@@ -110,6 +117,7 @@ export default function Home() {
     setMarkPriceDrafts,
     setPendingConfirmationEntry,
     loadWorkflow,
+    fetchBrokerStatus,
     handleEvaluateRiskGate,
     handleUpdateWatchlistStatus,
     handleConfirmOpenTrade,
@@ -118,11 +126,14 @@ export default function Home() {
     handleUpdatePaperTrade,
     handleDeleteLedgerEntry,
     handleClearTrustLedger,
+    handleExecuteBrokerTrade,
+    handleSyncBrokerTrade,
   } = useWatchlist({ onError: setError });
 
   useEffect(() => {
     void loadWorkflow();
-  }, [loadWorkflow]);
+    void fetchBrokerStatus();
+  }, [loadWorkflow, fetchBrokerStatus]);
 
   useEffect(() => {
     if (!toast) return;
@@ -444,6 +455,24 @@ export default function Home() {
                 <BarChart2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 Backtest
               </button>
+
+              <button
+                type="button"
+                onClick={() => setModelCompareModalOpen(true)}
+                className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 shadow-sm transition hover:border-emerald-500 hover:text-emerald-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
+              >
+                <Sparkles className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                Compare AI
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBrokerModalOpen(true)}
+                className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-700 shadow-sm transition hover:border-emerald-500 hover:text-emerald-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
+              >
+                <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                Brokers
+              </button>
             </form>
 
             <div className="flex items-center gap-2">
@@ -570,6 +599,7 @@ export default function Home() {
             decisionMessage={watchlistDecisionMessage}
             onAddToWatchlist={handleAddToWatchlist}
             onOpenDetails={() => setAnalysisModalOpen(true)}
+            onOpenCompare={() => setModelCompareModalOpen(true)}
           />
         </div>
 
@@ -600,6 +630,7 @@ export default function Home() {
               setQuantityDrafts((drafts) => ({ ...drafts, [entryId]: value }))
             }
             onViewThesis={setSelectedWatchlistEntry}
+            onExecuteBroker={(entry) => void handleExecuteBrokerTrade(entry.id)}
           />
 
           <div className="grid gap-4">
@@ -613,6 +644,7 @@ export default function Home() {
               }
               onUpdatePaperTrade={handleUpdatePaperTrade}
               onCloseTrade={handleCloseTrade}
+              onSyncBroker={(id) => void handleSyncBrokerTrade(id)}
             />
 
             <TrustLedgerCard
@@ -656,6 +688,22 @@ export default function Home() {
         symbol={symbolLabel}
         isOpen={backtestModalOpen}
         onClose={() => setBacktestModalOpen(false)}
+      />
+
+      <ModelCompareModal
+        symbol={symbolLabel}
+        isOpen={modelCompareModalOpen}
+        onClose={() => setModelCompareModalOpen(false)}
+        onApplyThesis={(newThesis) => {
+          setResult((prev) => (prev ? { ...prev, thesis: newThesis } : null));
+        }}
+      />
+
+      <BrokerModal
+        isOpen={brokerModalOpen}
+        onClose={() => setBrokerModalOpen(false)}
+        brokerStatus={brokerStatus}
+        onRefresh={() => void fetchBrokerStatus()}
       />
 
       <PendingConfirmationModal

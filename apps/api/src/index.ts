@@ -6,6 +6,7 @@ import watchlistRouter from './routes/watchlist';
 import thesesRouter from './routes/theses';
 import observabilityRouter from './routes/observability';
 import automationRouter from './routes/automation';
+import brokersRouter from './routes/brokers';
 import { requireApiKey } from './middleware/apiKeyAuth';
 import { getDb } from './services/db';
 import { startAutomationScheduler } from './services/automationScheduler';
@@ -66,6 +67,7 @@ app.use('/api', watchlistRouter);
 app.use('/api', thesesRouter);
 app.use('/api', observabilityRouter);
 app.use('/api', automationRouter);
+app.use('/api', brokersRouter);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
