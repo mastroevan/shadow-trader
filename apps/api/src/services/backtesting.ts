@@ -1,4 +1,4 @@
-import { Candle } from './marketSnapshot';
+import type { MarketCandle as Candle } from '../types/market';
 import { resolveInstrument } from '../utils/symbols';
 import { getMarketSnapshot, isValidMarketQuote } from './marketSnapshot';
 

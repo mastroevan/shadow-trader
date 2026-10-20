@@ -12,6 +12,7 @@ import {
   closeTradeEntry,
   getWatchlistEntry,
   type TradeEntry,
+  type WatchlistEntry,
   updatePaperTradeEntry,
 } from "../watchlist";
 import { evaluateTradeGate } from "../tradeGatekeeper";
@@ -88,15 +89,12 @@ export async function executeBrokerTrade(
   // Evaluate risk gate before executing order with broker
   const evaluation = evaluateTradeGate({
     confidenceScore: previousEntry.confidenceScore,
-    riskRewardRatio: previousEntry.riskRewardRatio,
     volumeConfirmation: previousEntry.volumeConfirmation,
     trendStrength: previousEntry.trendStrength,
     entryPrice: options.entryPrice ?? previousEntry.startPrice,
     stopLoss: options.stopLoss ?? previousEntry.stopLoss,
     takeProfit: options.takeProfit ?? previousEntry.takeProfit,
     direction: previousEntry.direction,
-    marketCondition: previousEntry.marketCondition,
-    triggerType: previousEntry.triggerType,
     symbol: previousEntry.symbol,
   });
 
@@ -200,7 +198,7 @@ export async function executeBrokerTrade(
 }
 
 export async function syncBrokerTrade(tradeId: string): Promise<TradeEntry | null> {
-  const db = getDb();
+  const db = await getDb();
   const row = await db.tradeLifecycleEntry.findUnique({
     where: { id: tradeId },
   });
@@ -245,7 +243,7 @@ export async function closeBrokerTrade(
   exitPrice?: number
 ) {
   // Sync status and cancel any remaining open broker order
-  const db = getDb();
+  const db = await getDb();
   const row = await db.tradeLifecycleEntry.findUnique({
     where: { id: tradeId },
   });

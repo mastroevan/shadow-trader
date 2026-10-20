@@ -44,7 +44,7 @@ export function useMarketSnapshot({
       if (!response.ok) return;
 
       const data: MarketSnapshotResponse = await response.json();
-      setLastLiveRefresh(new Date().toLocaleTimeString());
+      setLastLiveRefresh(new Date().toISOString());
       onSnapshotRef.current?.(data);
     } catch (err) {
       console.warn('Snapshot refresh failed:', err);
@@ -82,7 +82,7 @@ export function useMarketSnapshot({
       eventSource.addEventListener('snapshot', (event: MessageEvent) => {
         try {
           const data: MarketSnapshotResponse = JSON.parse(event.data);
-          setLastLiveRefresh(new Date().toLocaleTimeString());
+          setLastLiveRefresh(new Date().toISOString());
           onSnapshotRef.current?.(data);
         } catch (parseErr) {
           console.warn('Failed to parse SSE snapshot payload:', parseErr);

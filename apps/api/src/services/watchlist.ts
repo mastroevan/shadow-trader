@@ -130,6 +130,15 @@ export async function listWatchlistEntries(): Promise<WatchlistEntry[]> {
   return dedupeActiveWatchlist(rows.map((row) => normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson))));
 }
 
+export async function getWatchlistEntry(id: string): Promise<WatchlistEntry | null> {
+  const db = await getDb();
+  const row = await db.tradeLifecycleEntry.findUnique({ where: { id } });
+
+  if (!row || row.kind !== KIND_WATCHLIST) return null;
+
+  return normalizeStoredEntry(parsePayload<WatchlistEntry>(row.payloadJson));
+}
+
 export async function listTradeEntries(): Promise<TradeEntry[]> {
   const db = await getDb();
   const rows = await db.tradeLifecycleEntry.findMany({

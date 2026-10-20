@@ -22,6 +22,7 @@ export function compactCurrency(value?: number | null): string {
     style: 'currency',
     currency: 'USD',
     notation: 'compact',
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(value);
 }
@@ -44,31 +45,40 @@ export function formatCandleTime(timestamp: number): string {
   }).format(date);
 }
 
+function parseValidDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export function formatTime(value?: string | null): string {
-  if (!value) return 'N/A';
+  const date = parseValidDate(value);
+  if (!date) return '—';
   return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     second: '2-digit',
-  }).format(new Date(value));
+  }).format(date);
 }
 
 export function formatDate(value?: string | null): string {
-  if (!value) return 'N/A';
+  const date = parseValidDate(value);
+  if (!date) return '—';
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-  }).format(new Date(value));
+  }).format(date);
 }
 
 export function formatShortDate(value?: string | null): string {
-  if (!value) return 'N/A';
+  const date = parseValidDate(value);
+  if (!date) return '—';
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
-  }).format(new Date(value));
+  }).format(date);
 }
 
 export function formatAnalysisTimeframe(value: string): string {

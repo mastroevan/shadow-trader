@@ -1,5 +1,5 @@
 import os
-from typing import Annotated, TypedDict
+from typing import Annotated, Optional, TypedDict
 import operator
 
 from dotenv import load_dotenv

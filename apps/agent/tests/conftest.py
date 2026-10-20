@@ -2,6 +2,25 @@ import sys
 import types
 from unittest.mock import MagicMock
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_model_env(monkeypatch):
+    # load_dotenv() at import time can pull local .env model overrides into os.environ;
+    # clear them so tests assert the code defaults regardless of the developer's .env.
+    for name in (
+        "OPENAI_MODEL_FAST",
+        "OPENAI_MODEL_DEEP",
+        "ANTHROPIC_MODEL_FAST",
+        "ANTHROPIC_MODEL_DEEP",
+        "GOOGLE_MODEL_FAST",
+        "GOOGLE_MODEL_DEEP",
+        "SHADOW_TRADER_MODE",
+        "SHADOW_TRADER_PROVIDER",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
 # If fastapi or pydantic or dotenv are not installed in the current Python environment,
 # provide standard compatibility shims so tests can run in any environment.
 

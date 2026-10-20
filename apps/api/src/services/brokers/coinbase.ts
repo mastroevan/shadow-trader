@@ -74,7 +74,7 @@ export class CoinbaseBrokerConnector implements BrokerConnector {
         throw new Error(`Coinbase accounts error: ${res.status}`);
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as Record<string, any>;
       const accounts = Array.isArray(data.accounts) ? data.accounts : [];
       const usdAcct = accounts.find((a: any) => a.currency === "USD" || a.currency === "USDC");
       const cash = usdAcct ? parseFloat(usdAcct.available_balance?.value || "0") : 15000;
@@ -117,7 +117,7 @@ export class CoinbaseBrokerConnector implements BrokerConnector {
       }, 8000);
 
       if (!res.ok) return [];
-      const data = await res.json();
+      const data = (await res.json()) as Record<string, any>;
       const accounts = Array.isArray(data.accounts) ? data.accounts : [];
 
       return accounts
@@ -190,7 +190,7 @@ export class CoinbaseBrokerConnector implements BrokerConnector {
         throw new Error(`Coinbase order error (${res.status}): ${errText}`);
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as Record<string, any>;
       const orderId = data.order_id || data.success_response?.order_id || clientOrderId;
 
       return {
@@ -251,7 +251,7 @@ export class CoinbaseBrokerConnector implements BrokerConnector {
       }, 8000);
 
       if (!res.ok) return null;
-      const data = await res.json();
+      const data = (await res.json()) as Record<string, any>;
       const order = data.order || data;
       return {
         broker: "COINBASE",

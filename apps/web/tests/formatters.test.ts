@@ -91,21 +91,27 @@ describe('formatters', () => {
 
     it('formats time from ISO string', () => {
       const time = formatTime(iso);
-      assert.notEqual(time, 'N/A');
-      assert.equal(formatTime(null), 'N/A');
-      assert.equal(formatTime(undefined), 'N/A');
+      assert.notEqual(time, '—');
+      assert.equal(formatTime(null), '—');
+      assert.equal(formatTime(''), '—');
+      assert.equal(formatTime('2:41:45 PM'), '—');
+      assert.equal(formatTime(undefined), '—');
     });
 
     it('formats date from ISO string', () => {
       const date = formatDate(iso);
-      assert.notEqual(date, 'N/A');
-      assert.equal(formatDate(null), 'N/A');
+      assert.notEqual(date, '—');
+      assert.equal(formatDate(null), '—');
+      assert.equal(formatDate(''), '—');
+      assert.equal(formatDate('2:41:45 PM'), '—');
     });
 
     it('formats short date from ISO string', () => {
       const shortDate = formatShortDate(iso);
-      assert.notEqual(shortDate, 'N/A');
-      assert.equal(formatShortDate(null), 'N/A');
+      assert.notEqual(shortDate, '—');
+      assert.equal(formatShortDate(null), '—');
+      assert.equal(formatShortDate(''), '—');
+      assert.equal(formatShortDate('2:41:45 PM'), '—');
     });
   });
 

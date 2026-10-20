@@ -64,7 +64,7 @@ export class AlpacaBrokerConnector implements BrokerConnector {
         throw new Error(`Alpaca getAccount error: ${res.status} ${await res.text()}`);
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as Record<string, any>;
       return {
         broker: "ALPACA",
         accountId: data.id || data.account_number || "alpaca-acct",
@@ -106,7 +106,7 @@ export class AlpacaBrokerConnector implements BrokerConnector {
         throw new Error(`Alpaca getPositions error: ${res.status}`);
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as Record<string, any>;
       return Array.isArray(data)
         ? data.map((pos) => ({
             symbol: pos.symbol,
@@ -189,7 +189,7 @@ export class AlpacaBrokerConnector implements BrokerConnector {
         throw new Error(`Alpaca order rejected (${res.status}): ${errText}`);
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as Record<string, any>;
       const status = (data.status || "submitted").toUpperCase();
 
       return {
@@ -250,7 +250,7 @@ export class AlpacaBrokerConnector implements BrokerConnector {
       }, 8000);
 
       if (!res.ok) return null;
-      const data = await res.json();
+      const data = (await res.json()) as Record<string, any>;
       return {
         broker: "ALPACA",
         orderId: data.id,

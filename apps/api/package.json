@@ -8,6 +8,7 @@
     "build": "prisma generate && tsc",
     "db:push": "prisma db push",
     "prisma:generate": "prisma generate",
+    "typecheck": "tsc --noEmit",
     "test": "NODE_ENV=test tsx --test \"src/**/*.test.ts\"",
     "start": "node dist/index.js"
   },
