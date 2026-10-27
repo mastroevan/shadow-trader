@@ -29,6 +29,8 @@ type GenerateSignalsInput = {
   quote: MarketQuote;
   candles?: MarketCandle[];
   news?: NewsItem[];
+  /** Current time in ms; injectable for tests. */
+  now?: number;
 };
 
 export function generateSignals({
@@ -36,6 +38,7 @@ export function generateSignals({
   quote,
   candles = [],
   news = [],
+  now = Date.now(),
 }: GenerateSignalsInput): MarketSignal[] {
   const signals: MarketSignal[] = [];
   const completeCandles = candles.filter((candle) => candle.close > 0);
@@ -114,9 +117,13 @@ export function generateSignals({
     });
   }
 
-  if (completeCandles.length >= 6) {
-    const latestVolume = latestCandle?.volume ?? 0;
-    const previousVolumes = completeCandles.slice(-21, -1).map((candle) => candle.volume).filter((volume) => volume > 0);
+  // Compare the last *closed* bar against the baseline. Yahoo and Coinbase both
+  // include the still-forming bar, whose partial volume (often 0 right after it
+  // opens) would make the ratio read far below 1 almost every time.
+  const volumeCandles = closedCandles(completeCandles, now);
+  if (volumeCandles.length >= 6) {
+    const latestVolume = volumeCandles[volumeCandles.length - 1]?.volume ?? 0;
+    const previousVolumes = volumeCandles.slice(-21, -1).map((candle) => candle.volume).filter((volume) => volume > 0);
     const averageVolume = average(previousVolumes);
 
     if (latestVolume > 0 && averageVolume > 0) {
@@ -269,6 +276,29 @@ function calculateRsi(values: number[], period: number): number | null {
   const relativeStrength = averageGain / averageLoss;
 
   return 100 - 100 / (1 + relativeStrength);
+}
+
+/**
+ * Drops the trailing candle while it is still forming. Bar length is inferred
+ * from the median spacing of recent timestamps (seconds or ms both work).
+ */
+export function closedCandles(candles: MarketCandle[], now = Date.now()): MarketCandle[] {
+  if (candles.length < 2) return candles;
+
+  const recent = candles.slice(-11);
+  const gaps = recent
+    .slice(1)
+    .map((candle, index) => candle.timestamp - recent[index].timestamp)
+    .filter((gap) => gap > 0)
+    .sort((a, b) => a - b);
+  if (gaps.length === 0) return candles;
+
+  const barLength = gaps[Math.floor(gaps.length / 2)];
+  const last = candles[candles.length - 1];
+  const nowInCandleUnits = last.timestamp > 1e12 ? now : now / 1000;
+  const isForming = nowInCandleUnits < last.timestamp + barLength;
+
+  return isForming ? candles.slice(0, -1) : candles;
 }
 
 function average(values: number[]): number {

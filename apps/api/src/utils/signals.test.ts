@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { generateSignals } from "./signals";
+import { closedCandles, generateSignals } from "./signals";
 import type { Instrument, MarketCandle, MarketQuote } from "../types/market";
 
 const instrument: Instrument = {
@@ -62,4 +62,23 @@ test("generateSignals returns intraday setup indicators", () => {
   assert(signalTypes.includes("QUOTE_HEALTH"));
   assert(!signalTypes.includes("SMA_TREND" as never));
   assert(!signalTypes.includes("PRICE_CHANGE" as never));
+});
+
+test("volume spike ignores the still-forming bar and measures the last closed bar", () => {
+  const lastClosed = candles[candles.length - 1];
+  // A bar that opened 10s ago with almost no volume yet.
+  const forming: MarketCandle = { ...lastClosed, timestamp: lastClosed.timestamp + 300, volume: 3 };
+  const now = (forming.timestamp + 10) * 1000;
+
+  const signals = generateSignals({ instrument, quote, candles: [...candles, forming], now });
+  const volume = signals.find((signal) => signal.type === "VOLUME_SPIKE");
+
+  // Last closed bar has 500 vs a 100 baseline, so the spike is still detected.
+  assert.equal(volume?.value, 5);
+});
+
+test("closedCandles keeps the last bar once its period has elapsed", () => {
+  const last = candles[candles.length - 1];
+  assert.equal(closedCandles(candles, (last.timestamp + 299) * 1000).length, candles.length - 1);
+  assert.equal(closedCandles(candles, (last.timestamp + 300) * 1000).length, candles.length);
 });
