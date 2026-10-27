@@ -72,4 +72,5 @@ export interface BrokerConnector {
   submitOrder(request: BrokerOrderRequest): Promise<BrokerOrderResponse>;
   getOrder(orderId: string): Promise<BrokerOrderResponse | null>;
   cancelOrder(orderId: string): Promise<boolean>;
+  closePosition(symbol: string, side: BrokerOrderSide, qty: number): Promise<boolean>;
 }

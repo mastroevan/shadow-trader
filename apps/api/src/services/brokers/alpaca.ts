@@ -127,8 +127,16 @@ export class AlpacaBrokerConnector implements BrokerConnector {
   async submitOrder(request: BrokerOrderRequest): Promise<BrokerOrderResponse> {
     const symbol = request.symbol.replace(/[\/\-].*$/, "").toUpperCase();
     const side = request.side.toLowerCase();
-    const qty = Math.max(1, Math.round(request.qty));
+    // Bracket orders require whole shares. Round down so the position never
+    // exceeds the risk-sized quantity, and refuse rather than force a 1-share minimum.
+    const qty = Math.floor(request.qty);
     const nowIso = new Date().toISOString();
+
+    if (!Number.isFinite(qty) || qty < 1) {
+      throw new Error(
+        `Alpaca order quantity must be at least 1 whole share (risk-sized quantity was ${request.qty}).`
+      );
+    }
 
     if (!this.isConfigured()) {
       // High-fidelity paper simulation fill
@@ -152,6 +160,7 @@ export class AlpacaBrokerConnector implements BrokerConnector {
 
     try {
       const payload: Record<string, unknown> = {
+        client_order_id: `st-${randomUUID()}`,
         symbol,
         qty: String(qty),
         side,
@@ -208,23 +217,30 @@ export class AlpacaBrokerConnector implements BrokerConnector {
         raw: data,
       };
     } catch (err) {
-      console.warn("Alpaca submitOrder network error; falling back to simulated fill:", err);
-      const fallbackId = `alpaca-fallback-${randomUUID().slice(0, 8)}`;
-      return {
-        broker: "ALPACA",
-        orderId: fallbackId,
-        symbol,
-        side: request.side,
-        qty,
-        filledQty: qty,
-        status: "FILLED",
-        fillPrice: request.limitPrice || null,
-        submittedAt: nowIso,
-        filledAt: nowIso,
-        executionMode: "PAPER",
-        raw: { fallbackSimulated: true, error: String(err) },
-      };
+      // Never report a simulated fill for a broker order that failed or timed
+      // out: the order may not exist, or may exist in an unknown state.
+      console.error("Alpaca submitOrder failed:", err);
+      throw err;
     }
+  }
+
+  async closePosition(symbol: string): Promise<boolean> {
+    if (!this.isConfigured()) {
+      return true;
+    }
+
+    const cleanSymbol = symbol.replace(/[\/\-].*$/, "").toUpperCase();
+    const res = await fetchWithTimeout(
+      `${this.baseUrl}/v2/positions/${encodeURIComponent(cleanSymbol)}`,
+      {
+        method: "DELETE",
+        headers: this.getHeaders(),
+      },
+      10000
+    );
+
+    // 404 means there is no open position left to flatten (e.g. the bracket stop/target already filled).
+    return res.ok || res.status === 404;
   }
 
   async getOrder(orderId: string): Promise<BrokerOrderResponse | null> {

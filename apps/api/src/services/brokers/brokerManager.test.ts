@@ -147,4 +147,76 @@ describe("Broker Connectors & Manager", () => {
       assert.ok(result.order.orderId.length > 0);
     }
   });
+
+  it("coinbase stays simulated in paper mode even when API keys are configured", async () => {
+    const saved = { ...process.env };
+    process.env.COINBASE_API_KEY = "configured-key";
+    process.env.COINBASE_API_SECRET = "configured-secret";
+    process.env.COINBASE_EXECUTION_MODE = "paper";
+    // Point at an unroutable host so any real network call would fail loudly.
+    process.env.COINBASE_BASE_URL = "http://127.0.0.1:9";
+    try {
+      const coinbase = new CoinbaseBrokerConnector();
+      const order = await coinbase.submitOrder({
+        symbol: "ETH/USD",
+        side: "BUY",
+        qty: 0.5,
+        type: "MARKET",
+        limitPrice: 3000,
+      });
+
+      assert.equal(order.executionMode, "PAPER");
+      assert.ok(order.orderId.startsWith("coinbase-sim-"));
+    } finally {
+      process.env = saved;
+    }
+  });
+
+  it("alpaca rounds fractional quantities down instead of up", async () => {
+    const alpaca = new AlpacaBrokerConnector();
+    const order = await alpaca.submitOrder({
+      symbol: "AAPL",
+      side: "BUY",
+      qty: 10.7,
+      type: "MARKET",
+      limitPrice: 220,
+    });
+
+    assert.equal(order.qty, 10);
+  });
+
+  it("alpaca refuses orders sized below one whole share", async () => {
+    const alpaca = new AlpacaBrokerConnector();
+    await assert.rejects(
+      alpaca.submitOrder({
+        symbol: "AAPL",
+        side: "BUY",
+        qty: 0.4,
+        type: "MARKET",
+        limitPrice: 220,
+      }),
+      /at least 1 whole share/
+    );
+  });
+
+  it("alpaca reports a failed live order instead of faking a fill", async () => {
+    const saved = { ...process.env };
+    process.env.ALPACA_API_KEY_ID = "configured-key";
+    process.env.ALPACA_API_SECRET_KEY = "configured-secret";
+    process.env.ALPACA_BASE_URL = "http://127.0.0.1:9";
+    try {
+      const alpaca = new AlpacaBrokerConnector();
+      await assert.rejects(
+        alpaca.submitOrder({
+          symbol: "AAPL",
+          side: "BUY",
+          qty: 5,
+          type: "MARKET",
+          limitPrice: 220,
+        })
+      );
+    } finally {
+      process.env = saved;
+    }
+  });
 });

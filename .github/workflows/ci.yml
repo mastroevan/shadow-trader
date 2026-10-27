@@ -27,7 +27,7 @@ jobs:
       - run: npm run test
 
   web:
-    name: Web (lint + build)
+    name: Web (lint + test + build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -48,10 +48,11 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm run test
       - run: npm run build
 
   agent:
-    name: Agent (import check)
+    name: Agent (import check + test)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -63,6 +64,10 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt
       - run: python -c "import server"
+        env:
+          OPENAI_API_KEY: ci-dummy-key
+          FINNHUB_API_KEY: ci-dummy-key
+      - run: python -m pytest tests -q
         env:
           OPENAI_API_KEY: ci-dummy-key
           FINNHUB_API_KEY: ci-dummy-key

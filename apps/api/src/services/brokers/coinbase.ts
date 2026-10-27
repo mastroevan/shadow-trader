@@ -142,7 +142,10 @@ export class CoinbaseBrokerConnector implements BrokerConnector {
     const qty = request.qty;
     const nowIso = new Date().toISOString();
 
-    if (!this.isConfigured()) {
+    // Coinbase Advanced Trade has no paper-trading environment, so anything
+    // other than explicit live mode must stay simulated — otherwise "paper"
+    // mode with configured keys would place real orders.
+    if (this.isSimulated()) {
       // High-fidelity crypto paper simulation fill
       const simOrderId = `coinbase-sim-${randomUUID().slice(0, 8)}`;
       return {
@@ -209,27 +212,35 @@ export class CoinbaseBrokerConnector implements BrokerConnector {
         raw: data,
       };
     } catch (err) {
-      console.warn("Coinbase submitOrder network error; falling back to simulated fill:", err);
-      const fallbackId = `coinbase-fallback-${randomUUID().slice(0, 8)}`;
-      return {
-        broker: "COINBASE",
-        orderId: fallbackId,
-        symbol: productId,
-        side,
-        qty,
-        filledQty: qty,
-        status: "FILLED",
-        fillPrice: request.limitPrice || null,
-        submittedAt: nowIso,
-        filledAt: nowIso,
-        executionMode: "PAPER",
-        raw: { fallbackSimulated: true, error: String(err) },
-      };
+      // Never report a simulated fill for a live order: the caller must know
+      // the order did not go through (or may be in an unknown state).
+      console.error("Coinbase submitOrder failed:", err);
+      throw err;
     }
   }
 
+  async closePosition(symbol: string, side: "BUY" | "SELL", qty: number): Promise<boolean> {
+    if (this.isSimulated()) {
+      return true;
+    }
+
+    // Spot crypto has no position object to flatten; close with an offsetting market order.
+    const order = await this.submitOrder({
+      symbol,
+      side: side === "BUY" ? "SELL" : "BUY",
+      qty,
+      type: "MARKET",
+      executionMode: "LIVE",
+    });
+    return order.status !== "REJECTED" && order.status !== "CANCELED";
+  }
+
+  private isSimulated(): boolean {
+    return !this.isConfigured() || !this.isLive;
+  }
+
   async getOrder(orderId: string): Promise<BrokerOrderResponse | null> {
-    if (!this.isConfigured() || orderId.startsWith("coinbase-sim-") || orderId.startsWith("coinbase-fallback-")) {
+    if (this.isSimulated() || orderId.startsWith("coinbase-sim-") || orderId.startsWith("coinbase-fallback-")) {
       return {
         broker: "COINBASE",
         orderId,
@@ -273,7 +284,7 @@ export class CoinbaseBrokerConnector implements BrokerConnector {
   }
 
   async cancelOrder(orderId: string): Promise<boolean> {
-    if (!this.isConfigured() || orderId.startsWith("coinbase-sim-")) {
+    if (this.isSimulated() || orderId.startsWith("coinbase-sim-")) {
       return true;
     }
 

@@ -50,9 +50,10 @@ Web (`apps/web`):
 ```bash
 npm run build
 npm run lint    # next lint
+npm run test    # tsx --test "tests/**/*.test.ts" — pure-logic tests for app/utils
 ```
 
-There is no web test suite currently.
+Agent (`apps/agent`): `source venv/bin/activate && python -m pytest tests -q`. From the repo root, `npm test` runs the API, web, and agent suites in sequence.
 
 Root-level (`package.json` at repo root):
 
@@ -75,6 +76,7 @@ Env vars live in a single root `.env` (all three apps `dotenv.config()` up to `.
 - `services/automation.ts` + `automationScheduler.ts` — polls `Watching` entries and open paper trades for price-trigger/exit conditions (env-gated by `AUTOMATION_ENABLED`, interval `AUTOMATION_INTERVAL_MS`); can notify via Discord webhook or Twilio SMS if configured. Manual run: `POST /api/automation/run`.
 - `services/startupScanner.ts` — on boot, optionally runs `analyzeSetup` for a configured ticker list (`STARTUP_SCAN_*` env vars) so the watchlist has data without manual scans.
 - `utils/symbols.ts` — normalizes free-text ticker input into an `Instrument` (asset class, symbol, display symbol, exchange, timeframe), including stock/crypto name aliasing (e.g. `"bitcoin"` → `BTC`, `"amazon"` → `AMZN`) and crypto pair parsing (`BTC/USD`, `BTC-USD`, bare `BTC`).
+- `services/brokers/` — `AlpacaBrokerConnector` (equities) and `CoinbaseBrokerConnector` (crypto) behind a `BrokerConnector` interface; `brokerManager.ts` runs the same risk gate (including the post-loss cooldown) before `POST /api/watchlist/:id/broker-execute`. Without API keys both connectors simulate fills. Alpaca honors `ALPACA_EXECUTION_MODE` (paper/live endpoints); Coinbase has no paper environment, so it only sends real orders when `COINBASE_EXECUTION_MODE=live`. Connector failures throw — never convert a failed broker call into a simulated fill. Closing a broker trade cancels open legs and then flattens the position (`closePosition`).
 - `services/marketSnapshot/` — splits stock data-fetching (Finnhub quote/news, Yahoo intraday candles) from crypto (`crypto.ts`, Coinbase-backed) behind one `getMarketSnapshot(instrument)` entry point.
 - `src/generated/prisma/` is generated output (Prisma 7 client, `moduleFormat: cjs`) — do not hand-edit; regenerate with `npm run prisma:generate` after schema changes. Schema is `prisma/schema.prisma`, migrations in `prisma/migrations/`.
 - `prisma.config.ts` loads `../../.env` (repo root) for `DATABASE_URL`, independent of the app's own `dotenv.config()` in `index.ts`.
@@ -82,6 +84,7 @@ Env vars live in a single root `.env` (all three apps `dotenv.config()` up to `.
 ## Agent architecture (`apps/agent`)
 
 - `agent.py` builds a LangGraph `StateGraph` (agent node ⇄ tool node) around `ChatOpenAI`, with tools in `tools/` (`market_data.py`, `technicals.py`, `news.py`). Model selection is `SHADOW_TRADER_MODE` (`fast`/`deep`) mapping to `OPENAI_MODEL_FAST`/`OPENAI_MODEL_DEEP`.
+- `providers.py` adds OpenAI / Anthropic / Google providers (plain `requests` HTTP calls, selected by `SHADOW_TRADER_PROVIDER` and the `*_MODEL_FAST`/`*_MODEL_DEEP` vars) used for structured analysis and model comparison.
 - `server.py` is the FastAPI wrapper exposing `POST /analyze`. It branches on `is_structured_app_request`: if the API sent structured market data (`symbol`/`quote`/`candles`/`signals`), it calls OpenAI directly with a JSON-schema prompt (`build_structured_prompt`) and strictly validates/normalizes the JSON response (`validate_thesis_payload` — enforces required fields, enums like `direction`/`suggestedAction`/`timeHorizon`/`setup.bias`/`setup.setupType`, exactly-2-item `bullishFactors`/`bearishFactors`, confidence in `[0,1]`). If the request is a freeform question instead, it goes through the LangGraph `analyze()` tool-calling path in `agent.py`. A malformed/invalid agent response raises `HTTPException(502)`, which is what triggers the API's rule-based fallback.
 - Module imports use a `try/except ModuleNotFoundError` pattern to support running both as `apps.agent.*` (from repo root) and as a bare local package (`from agent import analyze`) depending on working directory/Docker context — preserve this pattern if you touch imports there.
 
@@ -89,7 +92,7 @@ Env vars live in a single root `.env` (all three apps `dotenv.config()` up to `.
 
 - Auth is NextAuth v5 (`auth.ts`) with GitHub OAuth only, JWT sessions, and an optional allowlist (`AUTH_ALLOWED_EMAILS`) enforced in the `signIn` callback. `middleware.ts` currently has an empty matcher (no route protection at the middleware layer) — auth is instead enforced per-request inside the backend proxy route.
 - `app/api/backend/[...path]/route.ts` is the only bridge from the browser to `apps/api`: it requires a NextAuth session, then re-signs every request server-side with `x-api-key: INTERNAL_API_KEY` before forwarding to `API_INTERNAL_BASE_URL`. The browser never sees `INTERNAL_API_KEY`. Any new backend route is reachable automatically through this catch-all — no proxy changes needed.
-- `app/page.tsx` is a large single-file client component (~2800 lines) containing essentially the entire UI (ticker scan flow, AI analysis display, watchlist/trade-list/ledger tables, automation controls). There's no component-per-file split yet — when editing, search within this file rather than assuming a components directory.
+- `app/page.tsx` is the top-level client page that composes the UI. Presentational pieces live in `app/components/` (watchlist, trade list, trust ledger, setup ticket, modals for analysis/backtest/model compare/broker), data/state logic in `app/hooks/` (`useWatchlist`, `useMarketSnapshot`, `useTheme`), pure helpers in `app/utils/` (`tradeLogic.ts`, `formatters.ts`, covered by `tests/`), and shared types/constants in `app/types.ts` and `app/constants.ts`.
 
 ## Cross-cutting conventions
 
@@ -100,7 +103,7 @@ Env vars live in a single root `.env` (all three apps `dotenv.config()` up to `.
 ## Don't do
 
 - Do not hand-edit files in `apps/api/src/generated/prisma/`.
-- Do not create individual component files under `apps/web/` without being prompted (everything currently lives in `app/page.tsx`).
+- Put new UI pieces in `app/components/` and stateful logic in `app/hooks/`, following the existing split, rather than growing `app/page.tsx`.
 - Do not add Vitest or Jest dependencies; tests must use `node:test` and `node:assert/strict`.
 - Do not expose `INTERNAL_API_KEY` to the client/browser bundle.
 

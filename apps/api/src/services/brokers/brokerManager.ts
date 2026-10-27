@@ -11,9 +11,10 @@ import type {
 import {
   closeTradeEntry,
   getWatchlistEntry,
+  KIND_PAPER_TRADE,
+  listLedgerEntries,
   type TradeEntry,
   type WatchlistEntry,
-  updatePaperTradeEntry,
 } from "../watchlist";
 import { evaluateTradeGate } from "../tradeGatekeeper";
 import { getDb } from "../db";
@@ -86,16 +87,22 @@ export async function executeBrokerTrade(
     return null;
   }
 
-  // Evaluate risk gate before executing order with broker
+  const entryPrice = options.entryPrice ?? previousEntry.startPrice ?? null;
+  const stopLoss = options.stopLoss ?? previousEntry.stopLoss ?? undefined;
+  const takeProfit = options.takeProfit ?? previousEntry.takeProfit ?? undefined;
+
+  // Evaluate risk gate before executing order with broker. Closed trades are
+  // included so the post-loss cooldown applies here as it does for paper trades.
   const evaluation = evaluateTradeGate({
     confidenceScore: previousEntry.confidenceScore,
     volumeConfirmation: previousEntry.volumeConfirmation,
     trendStrength: previousEntry.trendStrength,
-    entryPrice: options.entryPrice ?? previousEntry.startPrice,
-    stopLoss: options.stopLoss ?? previousEntry.stopLoss,
-    takeProfit: options.takeProfit ?? previousEntry.takeProfit,
+    entryPrice,
+    stopLoss,
+    takeProfit,
     direction: previousEntry.direction,
     symbol: previousEntry.symbol,
+    closedTrades: process.env.DATABASE_URL ? await listLedgerEntries() : [],
   });
 
   if (!evaluation.approved) {
@@ -111,27 +118,27 @@ export async function executeBrokerTrade(
     ? getBrokerConnector(options.broker)
     : selectBrokerForSymbol(previousEntry.symbol);
 
-  const direction = previousEntry.direction.toUpperCase();
-  const side = direction.includes("BEAR") || direction === "SHORT" ? "SELL" : "BUY";
-  const qty = options.quantity ?? evaluation.calculated.positionSize ?? 1;
-  const entryPrice = options.entryPrice ?? previousEntry.startPrice ?? 100;
-  const stopLoss = options.stopLoss ?? previousEntry.stopLoss ?? undefined;
-  const takeProfit = options.takeProfit ?? previousEntry.takeProfit ?? undefined;
+  const direction = (previousEntry.direction ?? "").toUpperCase();
+  const side = direction.includes("BEAR") || direction.includes("SHORT") ? "SELL" : "BUY";
+  const qty = options.quantity ?? evaluation.calculated.positionSize;
+  // The gate rejects setups without a positive entry price, so this is set here.
+  const referencePrice = entryPrice as number;
 
-  // Submit order to broker
+  // Submit order to broker. limitPrice is the reference price used for
+  // simulated fills; live market orders ignore it.
   const order = await broker.submitOrder({
     symbol: previousEntry.symbol,
     side,
     qty,
     type: "MARKET",
-    limitPrice: entryPrice,
+    limitPrice: referencePrice,
     stopLoss,
     takeProfit,
     executionMode: options.executionMode || "PAPER",
   });
 
   const nowIso = new Date().toISOString();
-  const fillPrice = order.fillPrice ?? entryPrice;
+  const fillPrice = order.fillPrice ?? referencePrice;
 
   // Build trade entry with broker tracking metadata
   const trade: TradeEntry = {
@@ -179,7 +186,7 @@ export async function executeBrokerTrade(
         db.tradeLifecycleEntry.create({
           data: {
             id: previousEntry.id,
-            kind: "paper_trade",
+            kind: KIND_PAPER_TRADE,
             symbol: previousEntry.symbol,
             status: "Triggered",
             ledgerId: null,
@@ -190,7 +197,15 @@ export async function executeBrokerTrade(
         }),
       ]);
     } catch (err) {
-      console.warn("DB persistence skipped for broker trade:", err);
+      // The broker order already exists, so losing track of it silently is the
+      // worst outcome. Surface the order id so it can be reconciled by hand.
+      console.error(
+        `Broker order ${order.orderId} (${broker.getBrokerType()}) was placed but could not be saved:`,
+        err
+      );
+      throw new Error(
+        `Order ${order.orderId} was placed with ${broker.getBrokerType()} but could not be saved. Reconcile it in the broker dashboard.`
+      );
     }
   }
 
@@ -242,21 +257,27 @@ export async function closeBrokerTrade(
   outcome: "Win" | "Loss",
   exitPrice?: number
 ) {
-  // Sync status and cancel any remaining open broker order
   const db = await getDb();
   const row = await db.tradeLifecycleEntry.findUnique({
     where: { id: tradeId },
   });
 
   if (row) {
-    try {
-      const payload = JSON.parse(row.payloadJson);
-      if (payload.brokerOrderId && payload.brokerProvider) {
-        const broker = getBrokerConnector(payload.brokerProvider);
-        await broker.cancelOrder(payload.brokerOrderId);
+    const payload = JSON.parse(row.payloadJson);
+    if (payload.brokerOrderId && payload.brokerProvider) {
+      const broker = getBrokerConnector(payload.brokerProvider);
+      // Cancel any still-open entry/bracket legs first (best effort), then
+      // flatten the position. Cancelling alone leaves a filled position open.
+      await broker.cancelOrder(payload.brokerOrderId).catch(() => false);
+
+      const direction = String(payload.direction ?? "").toUpperCase();
+      const side = direction.includes("BEAR") || direction.includes("SHORT") ? "SELL" : "BUY";
+      const closed = await broker.closePosition(payload.symbol, side, Number(payload.quantity) || 0);
+      if (!closed) {
+        throw new Error(
+          `Could not close the ${payload.symbol} position with ${payload.brokerProvider}; the trade was left open.`
+        );
       }
-    } catch {
-      // Best effort cancellation
     }
   }
 

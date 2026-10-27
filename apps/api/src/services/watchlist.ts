@@ -108,7 +108,7 @@ export type LedgerEntry = WatchlistEntry & {
 };
 
 const KIND_WATCHLIST = "WATCHLIST";
-const KIND_PAPER_TRADE = "PAPER_TRADE";
+export const KIND_PAPER_TRADE = "PAPER_TRADE";
 const KIND_LEDGER = "LEDGER";
 
 export type GateRejection = { rejected: true; reasons: string[] };
