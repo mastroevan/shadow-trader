@@ -135,6 +135,7 @@ export type AnalyzeResponse = {
   signalDetails?: SignalDetail[];
   riskFields?: {
     volumeConfirmation?: boolean;
+    volumeRatio?: number | null;
     trendStrength?: number | null;
     marketCondition?: string;
     triggerType?: string;
@@ -194,6 +195,7 @@ export type SavedWatchlistEntry = {
   takeProfit?: number | null;
   riskRewardRatio?: number | null;
   volumeConfirmation?: boolean | null;
+  volumeRatio?: number | null;
   trendStrength?: number | null;
   marketCondition?: string;
   triggerType?: string;

@@ -141,7 +141,10 @@ export function deriveTradeRiskFields(thesis: TradingThesis, signals: SignalDeta
       : null;
 
   return {
+    // Fallback only (the API normally sends riskFields). The server-side gate
+    // re-checks volumeRatio against MIN_VOLUME_RATIO, so 1.2 here is display-only.
     volumeConfirmation: volumeRatio !== null ? volumeRatio >= 1.2 : false,
+    volumeRatio,
     trendStrength,
     marketCondition: getMarketCondition(signals),
     triggerType: getTriggerType(thesis),

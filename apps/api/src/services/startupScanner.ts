@@ -120,6 +120,7 @@ export async function runStartupScan(): Promise<StartupScanResult> {
         })),
         traceId: analysis.traceId,
         volumeConfirmation: analysis.riskFields.volumeConfirmation,
+        volumeRatio: analysis.riskFields.volumeRatio,
         trendStrength: analysis.riskFields.trendStrength,
         marketCondition: analysis.riskFields.marketCondition,
         triggerType: analysis.riskFields.triggerType,

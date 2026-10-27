@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { tradeRiskConfig } from "./tradeRiskConfig";
 import { getMarketSnapshot, isValidMarketQuote } from "./marketSnapshot";
 import { createThesisRecord } from "./theses";
 import { fetchWithTimeout } from "../utils/fetchWithTimeout";
@@ -52,6 +53,7 @@ export type SetupComparisonResult = {
 
 export type DerivedTradeRiskFields = {
   volumeConfirmation: boolean;
+  volumeRatio: number | null;
   trendStrength: number | null;
   marketCondition: string;
   triggerType?: string;
@@ -256,7 +258,8 @@ export function deriveTradeRiskFields(
   const triggerType = setupType && setupType !== "NO_TRADE" ? setupType : undefined;
 
   return {
-    volumeConfirmation: volumeRatio !== null ? volumeRatio >= 1.2 : false,
+    volumeConfirmation: volumeRatio !== null ? volumeRatio >= tradeRiskConfig.minVolumeRatio : false,
+    volumeRatio,
     trendStrength,
     marketCondition,
     triggerType,

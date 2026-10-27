@@ -19,6 +19,8 @@ export type TradeGateCandidate = {
   takeProfit?: number | null;
   confidenceScore?: number | null;
   volumeConfirmation?: boolean | null;
+  /** Last closed bar volume / recent average. Preferred over volumeConfirmation when present. */
+  volumeRatio?: number | null;
   trendStrength?: number | null;
   closedTrades?: ClosedTradeForCooldown[];
 };
@@ -194,9 +196,20 @@ export function evaluateTradeGate(candidate: TradeGateCandidate): TradeGateEvalu
     reasons.push(directionError);
   }
 
-  const volumePassed = candidate.volumeConfirmation === true;
+  // Entries saved before volumeRatio was stored only carry the boolean.
+  const hasVolumeRatio = typeof candidate.volumeRatio === "number" && Number.isFinite(candidate.volumeRatio);
+  const volumePassed = hasVolumeRatio
+    ? candidate.volumeRatio! >= tradeRiskConfig.minVolumeRatio
+    : candidate.volumeConfirmation === true;
   if (!volumePassed) {
     reasons.push("No volume confirmation");
+  }
+
+  const hasTrendStrength =
+    typeof candidate.trendStrength === "number" && Number.isFinite(candidate.trendStrength);
+  const trendPassed = hasTrendStrength && candidate.trendStrength! >= tradeRiskConfig.minTrendStrength;
+  if (!trendPassed) {
+    reasons.push(`Trend strength below ${tradeRiskConfig.minTrendStrength}`);
   }
 
   const positionPassed = position.positionSize > 0;
@@ -231,8 +244,19 @@ export function evaluateTradeGate(candidate: TradeGateCandidate): TradeGateEvalu
       id: "volume",
       label: "Volume Confirmation",
       passed: volumePassed,
-      actual: candidate.volumeConfirmation === true ? "Confirmed (> 1.2x)" : "Unconfirmed",
-      threshold: ">= 1.2x volume spike",
+      actual: hasVolumeRatio
+        ? `${candidate.volumeRatio!.toFixed(2)}x`
+        : candidate.volumeConfirmation === true
+          ? "Confirmed"
+          : "Unconfirmed",
+      threshold: `>= ${tradeRiskConfig.minVolumeRatio}x volume spike`,
+    },
+    {
+      id: "trend",
+      label: "Trend Strength",
+      passed: trendPassed,
+      actual: hasTrendStrength ? candidate.trendStrength!.toFixed(2) : "N/A",
+      threshold: `>= ${tradeRiskConfig.minTrendStrength}`,
     },
     {
       id: "direction",

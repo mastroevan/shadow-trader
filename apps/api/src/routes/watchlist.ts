@@ -91,6 +91,7 @@ router.post("/watchlist", async (req, res) => {
       typeof req.body.traceId === "string" ? req.body.traceId : undefined,
     volumeConfirmation:
       typeof req.body.volumeConfirmation === "boolean" ? req.body.volumeConfirmation : null,
+    volumeRatio: parseNullableNumber(req.body.volumeRatio),
     trendStrength: parseNullableNumber(req.body.trendStrength),
     marketCondition:
       typeof req.body.marketCondition === "string" ? req.body.marketCondition : undefined,

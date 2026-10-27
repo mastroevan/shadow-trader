@@ -41,6 +41,7 @@ export type WatchlistEntry = {
   takeProfit?: number | null;
   riskRewardRatio?: number | null;
   volumeConfirmation?: boolean | null;
+  volumeRatio?: number | null;
   trendStrength?: number | null;
   marketCondition?: string;
   triggerType?: string;
@@ -211,6 +212,7 @@ export async function upsertWatchlistEntry(
     takeProfit,
     confidenceScore: input.confidenceScore,
     volumeConfirmation: input.volumeConfirmation,
+    volumeRatio: input.volumeRatio,
     trendStrength: input.trendStrength,
     closedTrades: ledgerEntries,
   });
@@ -296,6 +298,7 @@ export async function moveWatchlistEntry(
         takeProfit,
         confidenceScore: previousEntry.confidenceScore,
         volumeConfirmation: previousEntry.volumeConfirmation,
+        volumeRatio: previousEntry.volumeRatio,
         trendStrength: previousEntry.trendStrength,
         closedTrades: ledgerEntries,
       });
@@ -416,6 +419,7 @@ export async function openPaperTradeEntry(
       takeProfit,
       confidenceScore: storedEntry.confidenceScore,
       volumeConfirmation: storedEntry.volumeConfirmation,
+      volumeRatio: storedEntry.volumeRatio,
       trendStrength: storedEntry.trendStrength,
       closedTrades: ledgerEntries,
     });
@@ -480,6 +484,7 @@ export async function markWatchlistEntryPendingConfirmation(
     takeProfit,
     confidenceScore: current.confidenceScore,
     volumeConfirmation: current.volumeConfirmation,
+    volumeRatio: current.volumeRatio,
     trendStrength: current.trendStrength,
     closedTrades: ledgerEntries,
   });
@@ -540,6 +545,7 @@ export async function evaluateWatchlistRiskGate(
     takeProfit,
     confidenceScore: current.confidenceScore,
     volumeConfirmation: current.volumeConfirmation,
+    volumeRatio: current.volumeRatio,
     trendStrength: current.trendStrength,
     closedTrades: ledgerEntries,
   });
@@ -760,6 +766,7 @@ function normalizeStoredEntry(entry: WatchlistEntry): WatchlistEntry {
     riskRewardRatio: normalizeNumber(entry.riskRewardRatio),
     volumeConfirmation:
       typeof entry.volumeConfirmation === "boolean" ? entry.volumeConfirmation : null,
+    volumeRatio: normalizeNumber(entry.volumeRatio),
     trendStrength: normalizeNumber(entry.trendStrength),
     marketCondition: typeof entry.marketCondition === "string" ? entry.marketCondition : undefined,
     triggerType: typeof entry.triggerType === "string" ? entry.triggerType : undefined,

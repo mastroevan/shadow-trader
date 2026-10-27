@@ -149,7 +149,7 @@ export function BrokerModal({
             </h4>
             <p className="mt-1 leading-relaxed">
               When transitioning a Watching setup into a real paper or live trade, Shadow Trader automatically verifies
-              the 6-point risk gate checklist (confidence, risk/reward, volume, and cooldown). Passing equity setups are routed
+              the 7-point risk gate checklist (confidence, risk/reward, volume, trend strength, direction, sizing, and cooldown). Passing equity setups are routed
               to Alpaca with bracket stops/targets attached, and crypto setups are routed to Coinbase Advanced Trade with fractional precision.
             </p>
           </div>

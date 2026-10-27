@@ -96,6 +96,7 @@ export async function executeBrokerTrade(
   const evaluation = evaluateTradeGate({
     confidenceScore: previousEntry.confidenceScore,
     volumeConfirmation: previousEntry.volumeConfirmation,
+    volumeRatio: previousEntry.volumeRatio,
     trendStrength: previousEntry.trendStrength,
     entryPrice,
     stopLoss,

@@ -310,6 +310,7 @@ export default function Home() {
           news: analysisNews,
           traceId: analysis.traceId ?? analysisThesis.traceId,
           volumeConfirmation: riskFields.volumeConfirmation,
+          volumeRatio: riskFields.volumeRatio,
           trendStrength: riskFields.trendStrength,
           marketCondition: riskFields.marketCondition,
           triggerType: riskFields.triggerType,
