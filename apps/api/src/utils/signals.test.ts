@@ -82,3 +82,15 @@ test("closedCandles keeps the last bar once its period has elapsed", () => {
   assert.equal(closedCandles(candles, (last.timestamp + 299) * 1000).length, candles.length - 1);
   assert.equal(closedCandles(candles, (last.timestamp + 300) * 1000).length, candles.length);
 });
+
+test("closedCandles also drops Yahoo's trailing live price point and the forming bar behind it", () => {
+  const last = candles[candles.length - 1];
+  const formingBar: MarketCandle = { ...last, timestamp: last.timestamp + 300, volume: 40 };
+  // Live tick stamped at "now", 182s into the forming bar, with no volume.
+  const liveTick: MarketCandle = { ...last, timestamp: last.timestamp + 482, volume: 0 };
+  const now = (liveTick.timestamp + 1) * 1000;
+
+  const closed = closedCandles([...candles, formingBar, liveTick], now);
+  assert.equal(closed.length, candles.length);
+  assert.equal(closed[closed.length - 1].timestamp, last.timestamp);
+});

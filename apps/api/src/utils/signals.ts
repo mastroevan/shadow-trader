@@ -279,8 +279,10 @@ function calculateRsi(values: number[], period: number): number | null {
 }
 
 /**
- * Drops the trailing candle while it is still forming. Bar length is inferred
- * from the median spacing of recent timestamps (seconds or ms both work).
+ * Drops trailing candles that are still forming. Bar length is inferred from
+ * the median spacing of recent timestamps (seconds or ms both work). Yahoo
+ * appends a live price point stamped "now" after the forming bar, so this can
+ * drop more than one candle.
  */
 export function closedCandles(candles: MarketCandle[], now = Date.now()): MarketCandle[] {
   if (candles.length < 2) return candles;
@@ -294,11 +296,14 @@ export function closedCandles(candles: MarketCandle[], now = Date.now()): Market
   if (gaps.length === 0) return candles;
 
   const barLength = gaps[Math.floor(gaps.length / 2)];
-  const last = candles[candles.length - 1];
-  const nowInCandleUnits = last.timestamp > 1e12 ? now : now / 1000;
-  const isForming = nowInCandleUnits < last.timestamp + barLength;
+  const nowInCandleUnits = candles[candles.length - 1].timestamp > 1e12 ? now : now / 1000;
 
-  return isForming ? candles.slice(0, -1) : candles;
+  let end = candles.length;
+  while (end > 0 && nowInCandleUnits < candles[end - 1].timestamp + barLength) {
+    end -= 1;
+  }
+
+  return candles.slice(0, end);
 }
 
 function average(values: number[]): number {
